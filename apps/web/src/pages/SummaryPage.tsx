@@ -1,31 +1,36 @@
-import { useCardViews, useSavingsSummary } from '../api/hooks';
-import { fmtMoney, fmtSigned } from '../lib/format';
-import type { CardView } from '../api/types';
+import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useCardViews, useSavingsSummary, useSpendMonth } from '../api/hooks';
+import { CreateCardForm } from '../components/CreateCardForm';
+import { currentMonthStr, fmtMoney, fmtSigned } from '../lib/format';
 import type { SavingsSummaryRow } from '../services/savingsSummary.service';
+import type { SpendMonthView } from '../services/spend.service';
 
 export function SummaryPage() {
-  const views = useCardViews();
+  const month = currentMonthStr();
+  const spend = useSpendMonth(month);
   const savingsSummary = useSavingsSummary();
-  const all = views.data ?? [];
-  const spend = all.filter((v) => v.type === 'SPEND');
-  const fund = all.filter((v) => v.type === 'FUND');
+  const views = useCardViews();
+  const navigate = useNavigate();
+  const [showCreateFund, setShowCreateFund] = useState(false);
+
+  const spendRows = spend.data ?? [];
   const savings = savingsSummary.data ?? [];
+  const fund = (views.data ?? []).filter((v) => v.type === 'FUND');
 
   return (
     <div>
       <h1 className="page-title">统计</h1>
 
-      {/* 消费：超支情况 */}
-      <div className="section-title">消费 · 超支情况</div>
+      <div className="section-title">消费 · 超支情况（{month}）</div>
       <div className="card">
-        {spend.length ? (
-          spend.map((v) => <SpendRow key={v.cardId} v={v} />)
+        {spendRows.length ? (
+          spendRows.map((v) => <SpendRow key={v.cardId} v={v} />)
         ) : (
           <div className="muted">没有消费卡</div>
         )}
       </div>
 
-      {/* 储蓄：实际 vs 预算 差额 */}
       <div className="section-title">储蓄 · 实际与预期差额</div>
       <div className="card">
         {savings.length ? (
@@ -35,31 +40,53 @@ export function SummaryPage() {
         )}
       </div>
 
-      {/* 基金：营收 */}
       <div className="section-title">基金 · 营收</div>
       <div className="card">
         {fund.length ? (
-          fund.map((v) => <FundRow key={v.cardId} v={v} />)
+          fund.map((v) => (
+            <div className="tx" key={v.cardId} onClick={() => navigate(`/card/${v.cardId}`)} style={{ cursor: 'pointer' }}>
+              <div>
+                <div>{v.cardName} ›</div>
+                <div className="meta">市值 {fmtMoney(v.balance)} · 本金 {fmtMoney(v.principal)}</div>
+              </div>
+              <span className={`amt ${Number(v.profit) >= 0 ? 'in' : 'out'}`}>
+                {fmtSigned(v.profit)}
+                {v.profitPct !== null ? `（${v.profitPct > 0 ? '+' : ''}${v.profitPct}%）` : ''}
+              </span>
+            </div>
+          ))
         ) : (
           <div className="muted">没有基金</div>
+        )}
+      </div>
+      <div className="mt">
+        <button onClick={() => setShowCreateFund((s) => !s)}>
+          {showCreateFund ? '收起' : '＋ 新建基金'}
+        </button>
+        {showCreateFund && (
+          <div className="mt">
+            <CreateCardForm type="FUND" placeholder="如：某某基金" />
+          </div>
         )}
       </div>
     </div>
   );
 }
 
-function SpendRow({ v }: { v: CardView }) {
-  const over = Math.max(0, -Number(v.balance));
+function SpendRow({ v }: { v: SpendMonthView }) {
+  const over = Math.max(0, -Number(v.remaining));
   return (
     <div className="tx">
       <div>
         <div>{v.cardName}</div>
-        <div className="meta">已消费 {fmtMoney(v.spent)} · 余额 {fmtMoney(v.balance)}</div>
+        <div className="meta">
+          额度 {v.hasQuota ? fmtMoney(v.quota) : '未设'} · 已消费 {fmtMoney(v.spent)}
+        </div>
       </div>
       {v.overspent ? (
         <span className="amt out">超支 {fmtMoney(over)}</span>
       ) : (
-        <span className="amt in">未超支</span>
+        <span className="amt in">剩 {fmtMoney(v.remaining)}</span>
       )}
     </div>
   );
@@ -81,22 +108,6 @@ function SavingsRow({ v }: { v: SavingsSummaryRow }) {
       ) : (
         <span className="amt neutral">—</span>
       )}
-    </div>
-  );
-}
-
-function FundRow({ v }: { v: CardView }) {
-  const p = Number(v.profit);
-  return (
-    <div className="tx">
-      <div>
-        <div>{v.cardName}</div>
-        <div className="meta">市值 {fmtMoney(v.balance)} · 本金 {fmtMoney(v.principal)}</div>
-      </div>
-      <span className={`amt ${p >= 0 ? 'in' : 'out'}`}>
-        {fmtSigned(v.profit)}
-        {v.profitPct !== null ? `（${v.profitPct > 0 ? '+' : ''}${v.profitPct}%）` : ''}
-      </span>
     </div>
   );
 }

@@ -63,6 +63,15 @@ export interface SavingsActualRow {
   updatedAt: number;
 }
 
+// 消费卡每月额度
+export interface SpendQuotaRow {
+  id: string;
+  cardId: string;
+  month: string; // YYYY-MM
+  amount: number; // cents
+  updatedAt: number;
+}
+
 export class BookkeepingDB extends Dexie {
   cards!: Table<CardRow, string>;
   budgetSnapshots!: Table<BudgetSnapshotRow, string>;
@@ -70,6 +79,7 @@ export class BookkeepingDB extends Dexie {
   transactions!: Table<TransactionRow, string>;
   budgetDetails!: Table<BudgetDetailRow, string>;
   savingsActuals!: Table<SavingsActualRow, string>;
+  spendQuotas!: Table<SpendQuotaRow, string>;
 
   constructor() {
     super('bookkeeping');
@@ -94,6 +104,10 @@ export class BookkeepingDB extends Dexie {
     this.version(3).stores({
       budgetDetails: 'id, cardId, [cardId+month]',
       savingsActuals: 'id, &[cardId+month], cardId',
+    });
+    // v4：消费卡每月额度
+    this.version(4).stores({
+      spendQuotas: 'id, &[cardId+month], cardId',
     });
   }
 }

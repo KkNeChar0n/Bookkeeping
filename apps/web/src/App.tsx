@@ -7,7 +7,6 @@ import { BudgetCardPage } from './pages/BudgetCardPage';
 import { SavingsPage } from './pages/SavingsPage';
 import { SavingsCardPage } from './pages/SavingsCardPage';
 import { SummaryPage } from './pages/SummaryPage';
-import { CardsPage } from './pages/CardsPage';
 
 export function App() {
   return (
@@ -21,7 +20,6 @@ export function App() {
           <Route path="/savings" element={<SavingsPage />} />
           <Route path="/savings/:id" element={<SavingsCardPage />} />
           <Route path="/summary" element={<SummaryPage />} />
-          <Route path="/cards" element={<CardsPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>

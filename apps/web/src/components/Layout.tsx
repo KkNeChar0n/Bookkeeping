@@ -5,7 +5,6 @@ const tabs = [
   { to: '/budget', label: '预算', ico: '📊' },
   { to: '/savings', label: '储蓄', ico: '🏦' },
   { to: '/summary', label: '统计', ico: '📈' },
-  { to: '/cards', label: '卡片', ico: '💳' },
 ];
 
 export function Layout() {

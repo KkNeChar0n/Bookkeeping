@@ -9,6 +9,7 @@ import { cardViewService } from '../services/cardview.service';
 import { budgetPlanService } from '../services/budgetPlan.service';
 import { savingsActualService } from '../services/savingsActual.service';
 import { savingsSummaryService } from '../services/savingsSummary.service';
+import { spendService } from '../services/spend.service';
 import { categoriesService } from '../services/categories';
 
 // ---- 失效所有受余额影响的视图 ----
@@ -23,6 +24,7 @@ function useInvalidateLedger() {
     qc.invalidateQueries({ queryKey: ['cardviews'] });
     qc.invalidateQueries({ queryKey: ['budgetPlan'] });
     qc.invalidateQueries({ queryKey: ['savings'] });
+    qc.invalidateQueries({ queryKey: ['spend'] });
   };
 }
 
@@ -227,6 +229,26 @@ export function useRemoveSavings() {
 }
 export function useSavingsSummary() {
   return useQuery({ queryKey: ['savings', 'summary'], queryFn: () => savingsSummaryService.list() });
+}
+
+// ---- 消费卡按月额度 ----
+export function useSpendMonth(month: string) {
+  return useQuery({ queryKey: ['spend', 'month', month], queryFn: () => spendService.listForMonth(month) });
+}
+export function useSpendCardMonth(cardId: string, month: string) {
+  return useQuery({
+    queryKey: ['spend', 'card', cardId, month],
+    queryFn: () => spendService.monthView(cardId, month),
+    enabled: !!cardId,
+  });
+}
+export function useSetQuota() {
+  const inv = useInvalidateLedger();
+  return useMutation({
+    mutationFn: (body: { cardId: string; month: string; amount: string }) =>
+      spendService.setQuota(body),
+    onSuccess: inv,
+  });
 }
 
 // ---- Comparison / Summary ----

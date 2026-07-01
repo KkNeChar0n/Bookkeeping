@@ -7,92 +7,21 @@ import {
   useCreateEntry,
   useDeleteTransaction,
   useSetBalance,
+  useSetQuota,
+  useSpendCardMonth,
   useTransactions,
   useTransfer,
 } from '../api/hooks';
 import { CARD_TYPE_LABEL } from '../api/types';
-import { fmtMoney, fmtSigned } from '../lib/format';
+import { CardManageBar } from '../components/CardManageBar';
+import { currentMonthStr, fmtMoney, fmtSigned } from '../lib/format';
 import type { Transaction } from '../api/types';
-
-type Mode = 'idle' | 'income' | 'expense';
-const THRESH = 70;
 
 export function CardDetailPage() {
   const { id = '' } = useParams();
   const navigate = useNavigate();
   const cards = useCards();
-  const views = useCardViews();
-  const categories = useCategories();
-  const createEntry = useCreateEntry();
-  const transfer = useTransfer();
-  const setBalance = useSetBalance();
-  const delTx = useDeleteTransaction();
-
   const card = cards.data?.find((c) => c.id === id);
-  const view = views.data?.find((v) => v.cardId === id);
-
-  const [mode, setMode] = useState<Mode>('idle');
-  const [drag, setDrag] = useState(0);
-  const [amount, setAmount] = useState('');
-  const [category, setCategory] = useState('');
-  const [msg, setMsg] = useState('');
-  const startX = useRef<number | null>(null);
-
-  const canIncome = card?.type === 'SAVINGS';
-  const canExpense = card?.type === 'SPEND';
-
-  const reset = () => {
-    setMode('idle');
-    setAmount('');
-    setCategory('');
-    setDrag(0);
-  };
-
-  const submit = async (kind: 'income' | 'expense') => {
-    if (!card) return;
-    if (!amount || Number(amount) <= 0) {
-      setMsg('请先填写金额');
-      return;
-    }
-    try {
-      await createEntry.mutateAsync({
-        cardId: card.id,
-        type: kind === 'income' ? 'IN' : 'OUT',
-        amount,
-        category: category || undefined,
-      });
-      setMsg(kind === 'income' ? '已记收入' : '已记支出');
-      reset();
-    } catch (e) {
-      setMsg(e instanceof Error ? e.message : '提交失败');
-    }
-  };
-
-  const onDown = (e: React.PointerEvent) => {
-    startX.current = e.clientX;
-  };
-  const onMove = (e: React.PointerEvent) => {
-    if (startX.current === null) return;
-    let dx = e.clientX - startX.current;
-    // 只允许朝合法方向拖动
-    if (dx > 0 && !canIncome) dx = 0;
-    if (dx < 0 && !canExpense) dx = 0;
-    setDrag(Math.max(-120, Math.min(120, dx)));
-  };
-  const onUp = () => {
-    const dx = drag;
-    startX.current = null;
-    if (mode === 'idle') {
-      if (dx > THRESH && canIncome) setMode('income');
-      else if (dx < -THRESH && canExpense) setMode('expense');
-    } else {
-      // 已进入表单：同向再滑一次=确认，反向=取消
-      if (mode === 'income' && dx > THRESH) return void submit('income');
-      if (mode === 'expense' && dx < -THRESH) return void submit('expense');
-      if ((mode === 'income' && dx < -THRESH) || (mode === 'expense' && dx > THRESH)) reset();
-    }
-    setDrag(0);
-  };
 
   if (!card) {
     return (
@@ -104,21 +33,6 @@ export function CardDetailPage() {
       </div>
     );
   }
-
-  const catList =
-    mode === 'income' ? (categories.data?.income ?? []) : (categories.data?.expense ?? []);
-  const hint =
-    mode === 'idle'
-      ? canIncome && canExpense
-        ? '右滑记收入 · 左滑记支出'
-        : canIncome
-          ? '右滑记收入 →'
-          : canExpense
-            ? '← 左滑记支出'
-            : '基金卡请用下方按钮'
-      : mode === 'income'
-        ? '填好金额后，再次右滑确认 →'
-        : '← 填好金额后，再次左滑确认';
 
   return (
     <div>
@@ -133,9 +47,121 @@ export function CardDetailPage() {
         <span style={{ width: 40 }} />
       </div>
 
-      {/* 可滑动的余额卡片 */}
+      {card.type === 'SPEND' ? (
+        <SpendDetail cardId={id} cardName={card.name} onDeleted={() => navigate('/')} />
+      ) : (
+        <FundDetail
+          cardId={id}
+          cardName={card.name}
+          initialBalance={card.initialBalance}
+          onDeleted={() => navigate('/summary')}
+        />
+      )}
+    </div>
+  );
+}
+
+// ---------- 消费卡：每月额度 + 滑动记消费 ----------
+function SpendDetail({
+  cardId,
+  cardName,
+  onDeleted,
+}: {
+  cardId: string;
+  cardName: string;
+  onDeleted: () => void;
+}) {
+  const [month, setMonth] = useState(currentMonthStr());
+  const view = useSpendCardMonth(cardId, month);
+  const setQuota = useSetQuota();
+  const categories = useCategories();
+  const createEntry = useCreateEntry();
+  const delTx = useDeleteTransaction();
+
+  const [quota, setQuotaInput] = useState('');
+  const [armed, setArmed] = useState(false);
+  const [drag, setDrag] = useState(0);
+  const [amount, setAmount] = useState('');
+  const [category, setCategory] = useState('');
+  const [msg, setMsg] = useState('');
+  const startX = useRef<number | null>(null);
+  const THRESH = 70;
+
+  const saveQuota = async () => {
+    if (!quota) return;
+    await setQuota.mutateAsync({ cardId, month, amount: quota });
+    setQuotaInput('');
+    setMsg('额度已保存');
+  };
+
+  const reset = () => {
+    setArmed(false);
+    setAmount('');
+    setCategory('');
+    setDrag(0);
+  };
+  const submit = async () => {
+    if (!amount || Number(amount) <= 0) {
+      setMsg('请先填写金额');
+      return;
+    }
+    try {
+      await createEntry.mutateAsync({ cardId, type: 'OUT', amount, category: category || undefined });
+      setMsg('已记支出');
+      reset();
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : '提交失败');
+    }
+  };
+
+  const onDown = (e: React.PointerEvent) => {
+    startX.current = e.clientX;
+  };
+  const onMove = (e: React.PointerEvent) => {
+    if (startX.current === null) return;
+    let dx = e.clientX - startX.current;
+    if (dx > 0) dx = 0; // 只能左滑
+    setDrag(Math.max(-120, dx));
+  };
+  const onUp = () => {
+    const dx = drag;
+    startX.current = null;
+    if (!armed) {
+      if (dx < -THRESH) setArmed(true);
+    } else {
+      if (dx < -THRESH) return void submit();
+    }
+    setDrag(0);
+  };
+
+  const v = view.data;
+  const remaining = v ? Number(v.remaining) : 0;
+
+  return (
+    <>
+      {/* 月份 + 额度 */}
+      <div className="card">
+        <div className="field">
+          <label>月份</label>
+          <input type="month" value={month} onChange={(e) => setMonth(e.target.value)} />
+        </div>
+        <div className="row-between" style={{ gap: 8 }}>
+          <input
+            type="number"
+            step="0.01"
+            placeholder={v?.hasQuota ? `当前额度 ${fmtMoney(v.quota)}` : '设置本月额度'}
+            value={quota}
+            onChange={(e) => setQuotaInput(e.target.value)}
+          />
+          <button style={{ width: 'auto', padding: '11px 16px' }} onClick={saveQuota} disabled={!quota}>
+            存额度
+          </button>
+        </div>
+      </div>
+
+      {/* 滑动记消费卡片 */}
       <div
-        className={`swipe-card ${mode}`}
+        className={`swipe-card ${armed ? 'expense' : ''}`}
         style={{ transform: `translateX(${drag}px)` }}
         onPointerDown={onDown}
         onPointerMove={onMove}
@@ -143,22 +169,19 @@ export function CardDetailPage() {
         onPointerLeave={onUp}
       >
         <div className="swipe-balance">
-          <span className="muted">
-            {card.type === 'FUND' ? '市值' : '当前余额'}
-          </span>
-          <div className="big">{fmtMoney(view?.balance ?? '0')}</div>
-          {card.type === 'FUND' && view && (
-            <div className={`muted ${Number(view.profit) >= 0 ? 'pos' : 'neg'}`}>
-              盈亏 {fmtSigned(view.profit)}
-              {view.profitPct !== null ? `（${view.profitPct}%）` : ''} · 本金 {fmtMoney(view.principal)}
-            </div>
-          )}
+          <span className="muted">{v?.overspent ? '本月超支' : '本月剩余'}</span>
+          <div className={`big ${v?.overspent ? 'neg' : ''}`}>
+            {fmtMoney(v ? Math.abs(remaining) : '0')}
+          </div>
+          <div className="muted">
+            额度 {v?.hasQuota ? fmtMoney(v.quota) : '未设'} · 已消费 {fmtMoney(v?.spent ?? '0')}
+          </div>
         </div>
 
-        {mode !== 'idle' && (
+        {armed && (
           <div className="swipe-form" onPointerDown={(e) => e.stopPropagation()}>
             <div className="chips">
-              {catList.map((c) => (
+              {(categories.data?.expense ?? []).map((c) => (
                 <button
                   key={c}
                   className={`chip${category === c ? ' active' : ''}`}
@@ -179,40 +202,91 @@ export function CardDetailPage() {
             />
           </div>
         )}
-
-        <div className={`swipe-hint ${mode}`}>{hint}</div>
+        <div className="swipe-hint expense">
+          {armed ? '← 填好金额后，再次左滑确认支出' : '← 左滑记一笔消费'}
+        </div>
       </div>
-
-      {mode !== 'idle' && (
+      {armed && (
         <button className="ghost mt" onClick={reset}>
           取消
         </button>
       )}
       {msg && <div className="muted mt">{msg}</div>}
 
-      <FundAndTransfer
-        card={card}
-        cards={cards.data ?? []}
-        onTransfer={(body) => transfer.mutateAsync(body).then(() => setMsg('调账完成'))}
-        onSetValue={(target) =>
-          setBalance.mutateAsync({ cardId: card.id, targetBalance: target, note: '市值更新' }).then(() => setMsg('已更新市值'))
-        }
-      />
+      <div className="section-title">本月流水</div>
+      <TxList cardId={cardId} month={month} onDelete={(txId) => delTx.mutate(txId)} />
 
-      <div className="section-title">流水</div>
-      <TxList cardId={card.id} onDelete={(txId) => delTx.mutate(txId)} />
-    </div>
+      <CardManageBar cardId={cardId} name={cardName} onDeleted={onDeleted} />
+    </>
   );
 }
 
-// ---- 调账 & 基金更新市值 ----
-function FundAndTransfer({
-  card,
+// ---------- 基金：市值/本金/盈亏 + 调账/更新市值 ----------
+function FundDetail({
+  cardId,
+  cardName,
+  initialBalance,
+  onDeleted,
+}: {
+  cardId: string;
+  cardName: string;
+  initialBalance: string;
+  onDeleted: () => void;
+}) {
+  const views = useCardViews();
+  const cards = useCards();
+  const transfer = useTransfer();
+  const setBalance = useSetBalance();
+  const delTx = useDeleteTransaction();
+  const [msg, setMsg] = useState('');
+  const view = views.data?.find((v) => v.cardId === cardId);
+
+  return (
+    <>
+      <div className="card">
+        <div className="swipe-balance">
+          <span className="muted">市值</span>
+          <div className="big">{fmtMoney(view?.balance ?? '0')}</div>
+          {view && (
+            <div className={`muted ${Number(view.profit) >= 0 ? 'pos' : 'neg'}`}>
+              盈亏 {fmtSigned(view.profit)}
+              {view.profitPct !== null ? `（${view.profitPct}%）` : ''} · 本金 {fmtMoney(view.principal)}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <FundActions
+        cardId={cardId}
+        cards={cards.data ?? []}
+        onTransfer={(b) => transfer.mutateAsync(b).then(() => setMsg('调账完成'))}
+        onSetValue={(t) =>
+          setBalance.mutateAsync({ cardId, targetBalance: t, note: '市值更新' }).then(() => setMsg('已更新市值'))
+        }
+      />
+      {msg && <div className="muted mt">{msg}</div>}
+
+      <div className="section-title">流水</div>
+      <TxList cardId={cardId} onDelete={(txId) => delTx.mutate(txId)} />
+
+      <CardManageBar
+        cardId={cardId}
+        name={cardName}
+        initialBalance={initialBalance}
+        showInitial
+        onDeleted={onDeleted}
+      />
+    </>
+  );
+}
+
+function FundActions({
+  cardId,
   cards,
   onTransfer,
   onSetValue,
 }: {
-  card: { id: string; type: string };
+  cardId: string;
   cards: { id: string; name: string }[];
   onTransfer: (b: {
     cardId: string;
@@ -223,7 +297,7 @@ function FundAndTransfer({
   onSetValue: (target: string) => Promise<unknown>;
 }) {
   const [open, setOpen] = useState<'none' | 'transfer' | 'value'>('none');
-  const [dir, setDir] = useState<'OUT' | 'IN'>('OUT');
+  const [dir, setDir] = useState<'OUT' | 'IN'>('IN');
   const [peer, setPeer] = useState('');
   const [amt, setAmt] = useState('');
   const [val, setVal] = useState('');
@@ -232,23 +306,21 @@ function FundAndTransfer({
     <div className="mt">
       <div className="row-between" style={{ gap: 8 }}>
         <button style={{ flex: 1 }} onClick={() => setOpen(open === 'transfer' ? 'none' : 'transfer')}>
-          调账
+          申购/赎回
         </button>
-        {card.type === 'FUND' && (
-          <button style={{ flex: 1 }} onClick={() => setOpen(open === 'value' ? 'none' : 'value')}>
-            更新市值
-          </button>
-        )}
+        <button style={{ flex: 1 }} onClick={() => setOpen(open === 'value' ? 'none' : 'value')}>
+          更新市值
+        </button>
       </div>
 
       {open === 'transfer' && (
         <div className="card mt">
           <div className="seg" style={{ marginBottom: 10 }}>
-            <button className={dir === 'OUT' ? 'active' : ''} onClick={() => setDir('OUT')}>
-              调出
-            </button>
             <button className={dir === 'IN' ? 'active' : ''} onClick={() => setDir('IN')}>
-              调入
+              申购(转入)
+            </button>
+            <button className={dir === 'OUT' ? 'active' : ''} onClick={() => setDir('OUT')}>
+              赎回(转出)
             </button>
           </div>
           <div className="field">
@@ -256,7 +328,7 @@ function FundAndTransfer({
             <select value={peer} onChange={(e) => setPeer(e.target.value)}>
               <option value="">选择</option>
               {cards
-                .filter((c) => c.id !== card.id)
+                .filter((c) => c.id !== cardId)
                 .map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.name}
@@ -272,12 +344,12 @@ function FundAndTransfer({
             className="primary"
             disabled={!peer || !amt}
             onClick={async () => {
-              await onTransfer({ cardId: card.id, direction: dir, peerCardId: peer, amount: amt });
+              await onTransfer({ cardId, direction: dir, peerCardId: peer, amount: amt });
               setAmt('');
               setOpen('none');
             }}
           >
-            提交调账
+            提交
           </button>
         </div>
       )}
@@ -305,15 +377,24 @@ function FundAndTransfer({
   );
 }
 
-function TxList({ cardId, onDelete }: { cardId: string; onDelete: (id: string) => void }) {
+function TxList({
+  cardId,
+  month,
+  onDelete,
+}: {
+  cardId: string;
+  month?: string;
+  onDelete: (id: string) => void;
+}) {
   const txs = useTransactions({ cardId });
+  const rows = (txs.data ?? []).filter((t) => !month || t.date.slice(0, 7) === month);
   const label = (t: Transaction) =>
     t.type === 'IN' ? '收入' : t.type === 'OUT' ? '支出' : t.type === 'TRANSFER' ? '调账' : '市值/调整';
   const cls = (t: Transaction) => (t.type === 'IN' ? 'in' : t.type === 'OUT' ? 'out' : 'neutral');
   return (
     <div className="card">
-      {txs.data?.length ? (
-        txs.data.map((t) => (
+      {rows.length ? (
+        rows.map((t) => (
           <div className="tx" key={t.id}>
             <div>
               <div>

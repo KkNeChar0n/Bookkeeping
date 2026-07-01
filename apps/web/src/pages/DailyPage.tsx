@@ -1,84 +1,19 @@
 import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useCardViews } from '../api/hooks';
-import { CARD_TYPE_LABEL, type CardView } from '../api/types';
-import { addDays, fmtDateCN, fmtMoney, fmtSigned, todayStr } from '../lib/format';
-
-function ExpandedDetail({ v }: { v: CardView }) {
-  if (v.type === 'FUND') {
-    const p = Number(v.profit);
-    return (
-      <div className="card-detail">
-        <div className="kv">
-          <span>市值</span>
-          <b>{fmtMoney(v.balance)}</b>
-        </div>
-        <div className="kv">
-          <span>本金</span>
-          <span>{fmtMoney(v.principal)}</span>
-        </div>
-        <div className="kv">
-          <span>盈亏</span>
-          <b className={p >= 0 ? 'pos' : 'neg'}>
-            {fmtSigned(v.profit)}
-            {v.profitPct !== null ? `（${v.profitPct > 0 ? '+' : ''}${v.profitPct}%）` : ''}
-          </b>
-        </div>
-      </div>
-    );
-  }
-  if (v.type === 'SPEND') {
-    return (
-      <div className="card-detail">
-        <div className="kv">
-          <span>预算</span>
-          <span>{fmtMoney(v.budgetBalance)}</span>
-        </div>
-        <div className="kv">
-          <span>已消费</span>
-          <span>{fmtMoney(v.spent)}</span>
-        </div>
-        <div className="kv">
-          <span>余额</span>
-          <b>{fmtMoney(v.balance)}</b>
-        </div>
-        <div className="kv">
-          <span>超支</span>
-          <b className={v.overspent ? 'neg' : ''}>
-            {v.overspent ? fmtMoney(Math.abs(Number(v.balance))) : '0'}
-          </b>
-        </div>
-      </div>
-    );
-  }
-  // SAVINGS
-  return (
-    <div className="card-detail">
-      <div className="kv">
-        <span>余额</span>
-        <b>{fmtMoney(v.balance)}</b>
-      </div>
-      <div className="kv">
-        <span>累计收入</span>
-        <span className="pos">{fmtMoney(v.income)}</span>
-      </div>
-      <div className="kv">
-        <span>预算</span>
-        <span>{fmtMoney(v.budgetBalance)}</span>
-      </div>
-    </div>
-  );
-}
+import { useSpendMonth } from '../api/hooks';
+import { BackupPanel } from '../components/BackupPanel';
+import { CreateCardForm } from '../components/CreateCardForm';
+import { addDays, fmtDateCN, fmtMoney, todayStr } from '../lib/format';
 
 export function DailyPage() {
   const [date, setDate] = useState(todayStr());
-  const views = useCardViews(date);
-  const [openId, setOpenId] = useState<string | null>(null);
+  const month = date.slice(0, 7);
+  const views = useSpendMonth(month);
   const navigate = useNavigate();
   const startX = useRef<number | null>(null);
+  const [showCreate, setShowCreate] = useState(false);
 
   const shift = (d: number) => setDate((cur) => addDays(cur, d));
-
   const onDown = (e: React.PointerEvent) => {
     startX.current = e.clientX;
   };
@@ -86,13 +21,8 @@ export function DailyPage() {
     if (startX.current === null) return;
     const dx = e.clientX - startX.current;
     startX.current = null;
-    if (dx > 40) shift(-1); // 右滑看前一天
-    else if (dx < -40) shift(1); // 左滑看后一天
-  };
-
-  const tapCard = (v: CardView) => {
-    if (openId === v.cardId) navigate(`/card/${v.cardId}`); // 已展开再点 → 详情
-    else setOpenId(v.cardId); // 点开
+    if (dx > 40) shift(-1);
+    else if (dx < -40) shift(1);
   };
 
   return (
@@ -114,59 +44,60 @@ export function DailyPage() {
             ›
           </button>
         </div>
-        <div className="muted date-hint">← 左右滑动看不同日期 →</div>
+        <div className="muted date-hint">← 左右滑动看不同日期 →（消费按 {month} 统计）</div>
       </div>
 
       <div className="stack">
-        {(() => {
-          const spendCards = views.data?.filter((v) => v.type === 'SPEND') ?? [];
-          return spendCards.length ? (
-            spendCards.map((v) => {
-            const open = openId === v.cardId;
-            const diffNum = Number(v.diff);
+        {views.data?.length ? (
+          views.data.map((v) => {
+            const remaining = Number(v.remaining);
             return (
               <div
                 key={v.cardId}
-                className={`stack-item${open ? ' open' : ''}${v.overspent ? ' over' : ''}`}
-                onClick={() => tapCard(v)}
+                className={`stack-item${v.overspent ? ' over' : ''}`}
+                onClick={() => navigate(`/card/${v.cardId}`)}
               >
                 <div className="stack-head">
                   <div className="stack-name">
                     <span>{v.cardName}</span>
-                    <span className="type-tag">{CARD_TYPE_LABEL[v.type]}</span>
+                    <span className="type-tag">消费卡</span>
                   </div>
-                  {!open && (
-                    <div className="stack-nums">
-                      {v.type === 'FUND' ? (
-                        <>
-                          <span>{fmtMoney(v.balance)}</span>
-                          <span className={Number(v.profit) >= 0 ? 'pos' : 'neg'}>
-                            {fmtSigned(v.profit)}
-                          </span>
-                        </>
-                      ) : (
-                        <>
-                          <span>{fmtMoney(v.balance)}</span>
-                          <span className={diffNum >= 0 ? 'pos' : 'neg'}>{fmtSigned(v.diff)}</span>
-                        </>
-                      )}
-                    </div>
-                  )}
+                  <span style={{ color: 'var(--primary)' }}>›</span>
                 </div>
-                {open && (
-                  <>
-                    <ExpandedDetail v={v} />
-                    <div className="enter-hint">再点一次进入详情 ›</div>
-                  </>
-                )}
+                <div className="card-detail">
+                  <div className="kv">
+                    <span>额度</span>
+                    <span>{v.hasQuota ? fmtMoney(v.quota) : '未设'}</span>
+                  </div>
+                  <div className="kv">
+                    <span>已消费</span>
+                    <b>{fmtMoney(v.spent)}</b>
+                  </div>
+                  <div className="kv">
+                    <span>{v.overspent ? '超支' : '剩余'}</span>
+                    <b className={v.overspent ? 'neg' : 'pos'}>
+                      {v.overspent ? fmtMoney(Math.abs(remaining)) : fmtMoney(v.remaining)}
+                    </b>
+                  </div>
+                </div>
               </div>
-              );
-            })
-          ) : (
-            <div className="card muted">还没有消费卡，去「卡片」页添加一张消费卡。</div>
-          );
-        })()}
+            );
+          })
+        ) : (
+          <div className="card muted">还没有消费卡，点下方「新建消费卡」。</div>
+        )}
       </div>
+
+      <div className="spacer" />
+      <button onClick={() => setShowCreate((s) => !s)}>{showCreate ? '收起' : '＋ 新建消费卡'}</button>
+      {showCreate && (
+        <div className="mt">
+          <CreateCardForm type="SPEND" placeholder="如：日常消费" />
+        </div>
+      )}
+
+      <div className="spacer" />
+      <BackupPanel />
     </div>
   );
 }

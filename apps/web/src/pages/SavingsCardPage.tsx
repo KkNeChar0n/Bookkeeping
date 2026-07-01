@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useCards, useRemoveSavings, useSavingsList, useSetSavingsAmount } from '../api/hooks';
+import { CardManageBar } from '../components/CardManageBar';
 import { currentMonthStr, fmtMoney } from '../lib/format';
 
 export function SavingsCardPage() {
@@ -69,6 +70,16 @@ export function SavingsCardPage() {
           <div className="muted">还没有记录</div>
         )}
       </div>
+
+      {card && (
+        <CardManageBar
+          cardId={id}
+          name={card.name}
+          initialBalance={card.initialBalance}
+          showInitial
+          onDeleted={() => navigate('/savings')}
+        />
+      )}
     </div>
   );
 }
