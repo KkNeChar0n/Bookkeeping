@@ -45,6 +45,7 @@ export function CardsPage() {
   };
 
   const [name, setName] = useState('');
+  const [type, setType] = useState<'SAVINGS' | 'SPEND' | 'FUND'>('SAVINGS');
   const [initial, setInitial] = useState('');
   const [msg, setMsg] = useState('');
 
@@ -53,12 +54,19 @@ export function CardsPage() {
   const add = async () => {
     setMsg('');
     try {
-      await create.mutateAsync({ name, initialBalance: initial || '0' });
+      await create.mutateAsync({ name, type, initialBalance: initial || '0' });
       setName('');
       setInitial('');
     } catch (e) {
       setMsg(e instanceof Error ? e.message : '添加失败');
     }
+  };
+
+  const changeType = (id: string, current: string) => {
+    const order = ['SAVINGS', 'SPEND', 'FUND'] as const;
+    const labels = { SAVINGS: '储蓄卡', SPEND: '消费卡', FUND: '基金' };
+    const next = order[(order.indexOf(current as 'SAVINGS') + 1) % order.length];
+    if (window.confirm(`把类型改为「${labels[next]}」？`)) update.mutate({ id, type: next });
   };
 
   const move = (index: number, dir: -1 | 1) => {
@@ -99,6 +107,21 @@ export function CardsPage() {
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder="如：消费卡" />
         </div>
         <div className="field">
+          <label>类型</label>
+          <div className="seg">
+            {(['SAVINGS', 'SPEND', 'FUND'] as const).map((t) => (
+              <button
+                key={t}
+                type="button"
+                className={type === t ? 'active' : ''}
+                onClick={() => setType(t)}
+              >
+                {t === 'SAVINGS' ? '储蓄卡' : t === 'SPEND' ? '消费卡' : '基金'}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="field">
           <label>初始余额</label>
           <input type="number" step="0.01" value={initial} onChange={(e) => setInitial(e.target.value)} placeholder="0.00" />
         </div>
@@ -116,6 +139,9 @@ export function CardsPage() {
               <div>
                 <div className="row-between" style={{ justifyContent: 'flex-start', gap: 8 }}>
                   <strong>{c.name}</strong>
+                  <span className="type-tag">
+                    {c.type === 'SAVINGS' ? '储蓄卡' : c.type === 'SPEND' ? '消费卡' : '基金'}
+                  </span>
                   {c.isDefault && <span className="badge default">默认</span>}
                 </div>
                 <div className="meta">初始余额 {fmtMoney(c.initialBalance)}</div>
@@ -126,6 +152,9 @@ export function CardsPage() {
                 </button>
                 <button className="ghost" onClick={() => move(i, 1)} disabled={i === list.length - 1}>
                   ↓
+                </button>
+                <button className="ghost" onClick={() => changeType(c.id, c.type)}>
+                  类型
                 </button>
                 <button className="ghost" onClick={() => rename(c.id, c.name)}>
                   改名

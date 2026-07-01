@@ -25,3 +25,17 @@ export function currentMonthStr(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
+
+/** 'YYYY-MM-DD' → '26年 12月 12日' */
+export function fmtDateCN(dateStr: string): string {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return `${String(y).slice(2)}年 ${m}月 ${d}日`;
+}
+
+/** 日期加减天数，返回 'YYYY-MM-DD' */
+export function addDays(dateStr: string, delta: number): string {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() + delta);
+  return dt.toISOString().slice(0, 10);
+}

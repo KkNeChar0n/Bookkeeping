@@ -1,9 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { cardsService } from '../services/cards.service';
+import type { CardType } from './types';
 import { budgetsService } from '../services/budgets.service';
 import { txService } from '../services/transactions.service';
 import { comparisonService } from '../services/comparison.service';
 import { summaryService } from '../services/summary.service';
+import { cardViewService } from '../services/cardview.service';
 import { categoriesService } from '../services/categories';
 
 // ---- 失效所有受余额影响的视图 ----
@@ -15,6 +17,7 @@ function useInvalidateLedger() {
     qc.invalidateQueries({ queryKey: ['budgets'] });
     qc.invalidateQueries({ queryKey: ['comparison'] });
     qc.invalidateQueries({ queryKey: ['summary'] });
+    qc.invalidateQueries({ queryKey: ['cardviews'] });
   };
 }
 
@@ -25,16 +28,27 @@ export function useCards() {
 export function useCreateCard() {
   const inv = useInvalidateLedger();
   return useMutation({
-    mutationFn: (body: { name: string; initialBalance?: string; isDefault?: boolean }) =>
-      cardsService.create(body),
+    mutationFn: (body: {
+      name: string;
+      type?: CardType;
+      initialBalance?: string;
+      isDefault?: boolean;
+    }) => cardsService.create(body),
     onSuccess: inv,
   });
 }
 export function useUpdateCard() {
   const inv = useInvalidateLedger();
   return useMutation({
-    mutationFn: ({ id, ...body }: { id: string; name?: string; initialBalance?: string }) =>
-      cardsService.update(id, body),
+    mutationFn: ({
+      id,
+      ...body
+    }: {
+      id: string;
+      name?: string;
+      type?: CardType;
+      initialBalance?: string;
+    }) => cardsService.update(id, body),
     onSuccess: inv,
   });
 }
@@ -150,6 +164,14 @@ export function useBudgetTransfer() {
 export function useDeleteSnapshot() {
   const inv = useInvalidateLedger();
   return useMutation({ mutationFn: (id: string) => budgetsService.remove(id), onSuccess: inv });
+}
+
+// ---- Card views (类型化摘要，随日期变化) ----
+export function useCardViews(date?: string) {
+  return useQuery({
+    queryKey: ['cardviews', date ?? 'today'],
+    queryFn: () => cardViewService.list(date),
+  });
 }
 
 // ---- Comparison / Summary ----

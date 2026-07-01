@@ -341,6 +341,170 @@ td:first-child {
   padding: 2px 8px;
 }
 
+/* ---- 主页：日期头 ---- */
+.pos {
+  color: var(--green);
+}
+.neg {
+  color: var(--red);
+}
+.date-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0 2px;
+  touch-action: pan-y;
+  user-select: none;
+}
+.date-header .ghost {
+  font-size: 26px;
+  padding: 4px 12px;
+  border: none;
+}
+.date-text {
+  font-size: 24px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.today-btn {
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 999px;
+}
+.date-hint {
+  text-align: center;
+  font-size: 12px;
+  margin-bottom: 14px;
+}
+
+/* ---- 主页：叠放卡片 ---- */
+.stack {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.stack-item {
+  border-bottom: 1px solid var(--border);
+  padding: 16px 14px;
+  cursor: pointer;
+  background: var(--surface);
+}
+.stack-item:last-child {
+  border-bottom: none;
+}
+.stack-item.open {
+  background: var(--surface-2);
+}
+.stack-item.over {
+  box-shadow: inset 3px 0 0 var(--red);
+}
+.stack-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.stack-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 16px;
+}
+.type-tag {
+  font-size: 11px;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 1px 6px;
+  font-weight: 500;
+}
+.stack-nums {
+  display: flex;
+  gap: 14px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.card-detail {
+  margin-top: 12px;
+}
+.card-detail .kv {
+  display: flex;
+  justify-content: space-between;
+  padding: 5px 0;
+  color: var(--text-dim);
+}
+.card-detail .kv b {
+  color: var(--text);
+  font-size: 16px;
+}
+.enter-hint {
+  margin-top: 10px;
+  text-align: right;
+  font-size: 12px;
+  color: var(--primary);
+}
+
+/* ---- 详情页：可滑动录入卡片 ---- */
+.swipe-card {
+  position: relative;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px 16px;
+  touch-action: pan-y;
+  user-select: none;
+  transition: transform 0.05s linear, border-color 0.15s;
+}
+.swipe-card.income {
+  border-color: var(--green);
+}
+.swipe-card.expense {
+  border-color: var(--red);
+}
+.swipe-balance {
+  text-align: center;
+}
+.swipe-balance .big {
+  font-size: 34px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  margin: 4px 0;
+}
+.swipe-form {
+  margin-top: 16px;
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.chip {
+  font-size: 13px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--surface-2);
+}
+.chip.active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+.swipe-hint {
+  margin-top: 14px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.swipe-hint.income {
+  color: var(--green);
+}
+.swipe-hint.expense {
+  color: var(--red);
+}
+
 .login-wrap {
   display: flex;
   min-height: 100vh;

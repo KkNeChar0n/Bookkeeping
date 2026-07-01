@@ -19,6 +19,34 @@ export async function actualBalanceForCard(cardId: string): Promise<Cents> {
   return initial + txs.reduce((a, t) => a + t.amount, 0);
 }
 
+export interface CardAgg {
+  balance: Cents; // 初始 + 截至日期的全部有符号金额
+  income: Cents; // IN 合计
+  spent: Cents; // -OUT 合计（正数）
+  transferNet: Cents; // TRANSFER 净额
+  adjust: Cents; // ADJUST 合计（基金即累计盈亏）
+}
+
+/** 各卡截至某日期(含)的分项聚合；不传日期=全部 */
+export async function cardAggregates(asOfDate?: string): Promise<Map<string, CardAgg>> {
+  const [cards, txs] = await Promise.all([db.cards.toArray(), db.transactions.toArray()]);
+  const m = new Map<string, CardAgg>();
+  for (const c of cards) {
+    m.set(c.id, { balance: c.initialBalance, income: 0, spent: 0, transferNet: 0, adjust: 0 });
+  }
+  for (const t of txs) {
+    if (asOfDate && t.date > asOfDate) continue;
+    const a = m.get(t.cardId);
+    if (!a) continue;
+    a.balance += t.amount;
+    if (t.type === 'IN') a.income += t.amount;
+    else if (t.type === 'OUT') a.spent += -t.amount;
+    else if (t.type === 'TRANSFER') a.transferNet += t.amount;
+    else if (t.type === 'ADJUST') a.adjust += t.amount;
+  }
+  return m;
+}
+
 export interface IncomeExpenseCents {
   income: Cents;
   expense: Cents;

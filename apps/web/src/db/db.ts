@@ -1,10 +1,14 @@
 import Dexie, { type Table } from 'dexie';
 import type { TxType } from '../domain/balance';
 
+// 卡类型：储蓄卡 / 消费卡 / 基金
+export type CardType = 'SAVINGS' | 'SPEND' | 'FUND';
+
 // 本地存储实体：金额一律以“分”(整数)存储
 export interface CardRow {
   id: string;
   name: string;
+  type: CardType;
   initialBalance: number; // cents
   isDefault: number; // 0/1（Dexie 索引友好）
   sortOrder: number;
@@ -53,6 +57,17 @@ export class BookkeepingDB extends Dexie {
       budgetLines: 'id, &[snapshotId+cardId], snapshotId, cardId',
       transactions: 'id, cardId, date, type, transferGroupId, [cardId+date]',
     });
+    // v2：卡片新增 type 字段，旧数据默认按储蓄卡处理
+    this.version(2)
+      .stores({ cards: 'id, sortOrder, isDefault, type' })
+      .upgrade(async (tx) => {
+        await tx
+          .table('cards')
+          .toCollection()
+          .modify((c: CardRow) => {
+            if (!c.type) c.type = 'SAVINGS';
+          });
+      });
   }
 }
 

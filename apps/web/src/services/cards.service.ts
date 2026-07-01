@@ -1,4 +1,4 @@
-import { db, newId, nowTs, type CardRow } from '../db/db';
+import { db, newId, nowTs, type CardRow, type CardType } from '../db/db';
 import { fromCents, toCents } from '../domain/money';
 import type { Card } from '../api/types';
 
@@ -6,6 +6,7 @@ function toDTO(c: CardRow): Card {
   return {
     id: c.id,
     name: c.name,
+    type: c.type ?? 'SAVINGS',
     initialBalance: fromCents(c.initialBalance),
     isDefault: c.isDefault === 1,
     sortOrder: c.sortOrder,
@@ -22,7 +23,12 @@ export const cardsService = {
     return (await orderedRows()).map(toDTO);
   },
 
-  async create(input: { name: string; initialBalance?: string; isDefault?: boolean }): Promise<Card> {
+  async create(input: {
+    name: string;
+    type?: CardType;
+    initialBalance?: string;
+    isDefault?: boolean;
+  }): Promise<Card> {
     const name = input.name.trim();
     if (!name) throw new Error('卡片名称不能为空');
     const rows = await db.cards.toArray();
@@ -30,6 +36,7 @@ export const cardsService = {
     const row: CardRow = {
       id: newId(),
       name,
+      type: input.type ?? 'SAVINGS',
       initialBalance: toCents(input.initialBalance ?? '0'),
       isDefault: input.isDefault ? 1 : 0,
       sortOrder,
@@ -44,7 +51,10 @@ export const cardsService = {
     return toDTO(row);
   },
 
-  async update(id: string, input: { name?: string; initialBalance?: string }): Promise<Card> {
+  async update(
+    id: string,
+    input: { name?: string; type?: CardType; initialBalance?: string },
+  ): Promise<Card> {
     const existing = await db.cards.get(id);
     if (!existing) throw new Error('卡片不存在');
     const patch: Partial<CardRow> = {};
@@ -53,6 +63,7 @@ export const cardsService = {
       if (!name) throw new Error('卡片名称不能为空');
       patch.name = name;
     }
+    if (input.type !== undefined) patch.type = input.type;
     if (input.initialBalance !== undefined) patch.initialBalance = toCents(input.initialBalance);
     await db.cards.update(id, patch);
     return toDTO({ ...existing, ...patch });
