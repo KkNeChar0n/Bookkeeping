@@ -158,6 +158,14 @@ select:focus {
   border-color: var(--primary);
 }
 
+/* iOS 原生日期/月份框默认居中偏右，统一改成左对齐、与其它输入一致 */
+input[type='date'],
+input[type='month'] {
+  text-align: left;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
 .seg {
   display: flex;
   gap: 8px;
