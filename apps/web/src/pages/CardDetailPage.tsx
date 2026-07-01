@@ -79,6 +79,9 @@ function SpendDetail({
   const [category, setCategory] = useState('');
   const [msg, setMsg] = useState('');
   const startX = useRef<number | null>(null);
+  const dragRef = useRef(0);
+  const gestureRef = useRef(false); // 保证一次手势只结算一次
+  const submittingRef = useRef(false);
   const THRESH = 70;
 
   const saveQuota = async () => {
@@ -95,37 +98,48 @@ function SpendDetail({
     setDrag(0);
   };
   const submit = async () => {
+    if (submittingRef.current) return; // 防重复提交
     if (!amount || Number(amount) <= 0) {
       setMsg('请先填写金额');
       return;
     }
+    submittingRef.current = true;
     try {
       await createEntry.mutateAsync({ cardId, type: 'OUT', amount, category: category || undefined });
       setMsg('已记支出');
       reset();
     } catch (e) {
       setMsg(e instanceof Error ? e.message : '提交失败');
+    } finally {
+      submittingRef.current = false;
     }
   };
 
   const onDown = (e: React.PointerEvent) => {
     startX.current = e.clientX;
+    dragRef.current = 0;
+    gestureRef.current = true;
   };
   const onMove = (e: React.PointerEvent) => {
-    if (startX.current === null) return;
+    if (!gestureRef.current || startX.current === null) return;
     let dx = e.clientX - startX.current;
     if (dx > 0) dx = 0; // 只能左滑
-    setDrag(Math.max(-120, dx));
+    dx = Math.max(-120, dx);
+    dragRef.current = dx;
+    setDrag(dx);
   };
   const onUp = () => {
-    const dx = drag;
+    if (!gestureRef.current) return; // 一次手势只结算一次（pointerup/pointerleave 不重复触发）
+    gestureRef.current = false;
+    const dx = dragRef.current;
     startX.current = null;
+    dragRef.current = 0;
+    setDrag(0);
     if (!armed) {
       if (dx < -THRESH) setArmed(true);
-    } else {
-      if (dx < -THRESH) return void submit();
+    } else if (dx < -THRESH) {
+      submit();
     }
-    setDrag(0);
   };
 
   const v = view.data;
