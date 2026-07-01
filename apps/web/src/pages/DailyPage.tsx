@@ -97,23 +97,25 @@ export function DailyPage() {
 
   return (
     <div>
-      <div className="date-header" onPointerDown={onDown} onPointerUp={onUp}>
-        <button className="ghost" onClick={() => shift(-1)} aria-label="前一天">
-          ‹
-        </button>
-        <div className="date-text">
-          {fmtDateCN(date)}
-          {date !== todayStr() && (
-            <button className="today-btn" onClick={() => setDate(todayStr())}>
-              回今天
-            </button>
-          )}
+      <div className="date-swipe" onPointerDown={onDown} onPointerUp={onUp}>
+        <div className="date-header">
+          <button className="ghost" onClick={() => shift(-1)} aria-label="前一天">
+            ‹
+          </button>
+          <div className="date-text">
+            {fmtDateCN(date)}
+            {date !== todayStr() && (
+              <button className="today-btn" onClick={() => setDate(todayStr())}>
+                回今天
+              </button>
+            )}
+          </div>
+          <button className="ghost" onClick={() => shift(1)} aria-label="后一天">
+            ›
+          </button>
         </div>
-        <button className="ghost" onClick={() => shift(1)} aria-label="后一天">
-          ›
-        </button>
+        <div className="muted date-hint">← 左右滑动看不同日期 →</div>
       </div>
-      <div className="muted date-hint">左右滑动看不同日期</div>
 
       <div className="stack">
         {views.data?.length ? (

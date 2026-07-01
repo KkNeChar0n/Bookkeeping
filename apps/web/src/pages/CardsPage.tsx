@@ -135,39 +135,39 @@ export function CardsPage() {
       <div className="card">
         {list.length ? (
           list.map((c, i) => (
-            <div className="tx" key={c.id}>
-              <div>
-                <div className="row-between" style={{ justifyContent: 'flex-start', gap: 8 }}>
+            <div className="card-row" key={c.id}>
+              <div className="row-between">
+                <div className="stack-name">
                   <strong>{c.name}</strong>
                   <span className="type-tag">
                     {c.type === 'SAVINGS' ? '储蓄卡' : c.type === 'SPEND' ? '消费卡' : '基金'}
                   </span>
                   {c.isDefault && <span className="badge default">默认</span>}
                 </div>
-                <div className="meta">初始余额 {fmtMoney(c.initialBalance)}</div>
+                <div className="meta">初始 {fmtMoney(c.initialBalance)}</div>
               </div>
-              <div className="row-between">
-                <button className="ghost" onClick={() => move(i, -1)} disabled={i === 0}>
+              <div className="card-row-actions">
+                <button className="mini" onClick={() => move(i, -1)} disabled={i === 0}>
                   ↑
                 </button>
-                <button className="ghost" onClick={() => move(i, 1)} disabled={i === list.length - 1}>
+                <button className="mini" onClick={() => move(i, 1)} disabled={i === list.length - 1}>
                   ↓
                 </button>
-                <button className="ghost" onClick={() => changeType(c.id, c.type)}>
+                <button className="mini" onClick={() => changeType(c.id, c.type)}>
                   类型
                 </button>
-                <button className="ghost" onClick={() => rename(c.id, c.name)}>
+                <button className="mini" onClick={() => rename(c.id, c.name)}>
                   改名
                 </button>
-                <button className="ghost" onClick={() => editInitial(c.id, c.initialBalance)}>
-                  余额
+                <button className="mini" onClick={() => editInitial(c.id, c.initialBalance)}>
+                  改余额
                 </button>
                 {!c.isDefault && (
-                  <button className="ghost" onClick={() => setDefault.mutate(c.id)}>
+                  <button className="mini" onClick={() => setDefault.mutate(c.id)}>
                     设默认
                   </button>
                 )}
-                <button className="danger" onClick={() => remove(c.id)}>
+                <button className="mini danger" onClick={() => remove(c.id)}>
                   删除
                 </button>
               </div>

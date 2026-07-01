@@ -37,7 +37,8 @@ body {
   max-width: 560px;
   margin: 0 auto;
   min-height: 100%;
-  padding: 16px 16px calc(var(--nav-h) + env(safe-area-inset-bottom) + 24px);
+  padding: calc(20px + env(safe-area-inset-top)) 16px
+    calc(var(--nav-h) + env(safe-area-inset-bottom) + 24px);
 }
 
 .page-title {
@@ -348,13 +349,18 @@ td:first-child {
 .neg {
   color: var(--red);
 }
+/* 整块日期区都是滑动热区，加大触控面积 */
+.date-swipe {
+  touch-action: pan-y;
+  user-select: none;
+  padding: 6px 0 4px;
+  margin-bottom: 8px;
+}
 .date-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 0 2px;
-  touch-action: pan-y;
-  user-select: none;
+  padding: 12px 0;
 }
 .date-header .ghost {
   font-size: 26px;
@@ -377,6 +383,27 @@ td:first-child {
   text-align: center;
   font-size: 12px;
   margin-bottom: 14px;
+}
+
+/* ---- 卡片管理：每张卡一块，操作独立成行 ---- */
+.card-row {
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border);
+}
+.card-row:last-child {
+  border-bottom: none;
+}
+.card-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.card-row-actions .mini {
+  padding: 7px 12px;
+  font-size: 13px;
+  white-space: nowrap;
+  border-radius: 8px;
 }
 
 /* ---- 主页：叠放卡片 ---- */
