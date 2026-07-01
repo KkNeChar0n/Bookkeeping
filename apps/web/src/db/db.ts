@@ -46,13 +46,14 @@ export interface TransactionRow {
   createdAt: number;
 }
 
-// 预算细节（储蓄卡·按月）：一条条计划收入/调出
+// 预算细节（储蓄卡·按月）：计划收入 / 调出 / 支出
+// IN=收入(+)  OUT=调出(−, 钱去别处仍是资产)  EXPENSE=支出(−, 钱花掉消失, 不进储蓄-预算统计)
 export interface BudgetDetailRow {
   id: string;
   cardId: string;
   month: string; // YYYY-MM
   label: string;
-  kind: 'IN' | 'OUT';
+  kind: 'IN' | 'OUT' | 'EXPENSE';
   amount: number; // cents（正数）
   createdAt: number;
 }

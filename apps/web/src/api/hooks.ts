@@ -198,7 +198,7 @@ export function useAddBudgetDetail() {
       cardId: string;
       month: string;
       label: string;
-      kind: 'IN' | 'OUT';
+      kind: 'IN' | 'OUT' | 'EXPENSE';
       amount: string;
     }) => budgetPlanService.addDetail(body),
     onSuccess: inv,

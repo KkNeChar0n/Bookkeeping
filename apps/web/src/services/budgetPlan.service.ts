@@ -1,10 +1,12 @@
 import { db, newId, nowTs, type BudgetDetailRow } from '../db/db';
 import { fromCents, toCents, type Cents } from '../domain/money';
 
+export type BudgetKind = 'IN' | 'OUT' | 'EXPENSE';
+
 export interface BudgetDetailDTO {
   id: string;
   label: string;
-  kind: 'IN' | 'OUT';
+  kind: BudgetKind;
   amount: string;
 }
 
@@ -45,6 +47,7 @@ export const budgetPlanService = {
     let running = initial;
     return months.map((month) => {
       const details = (byMonth.get(month) ?? []).sort((a, b) => a.createdAt - b.createdAt);
+      // 收入 +，调出/支出 −（支出让预期余额直接减少）
       const net = details.reduce((s, d) => s + (d.kind === 'IN' ? d.amount : -d.amount), 0);
       running += net;
       return {
@@ -60,16 +63,17 @@ export const budgetPlanService = {
     cardId: string;
     month: string;
     label: string;
-    kind: 'IN' | 'OUT';
+    kind: BudgetKind;
     amount: string;
   }): Promise<void> {
     const amt = toCents(input.amount);
     if (amt <= 0) throw new Error('金额必须为正');
+    const defLabel = input.kind === 'IN' ? '收入' : input.kind === 'OUT' ? '调出' : '支出';
     await db.budgetDetails.add({
       id: newId(),
       cardId: input.cardId,
       month: input.month,
-      label: input.label.trim() || (input.kind === 'IN' ? '收入' : '调出'),
+      label: input.label.trim() || defLabel,
       kind: input.kind,
       amount: amt,
       createdAt: nowTs(),
@@ -94,7 +98,10 @@ export const budgetPlanService = {
     };
   },
 
-  /** 各储蓄卡「截至某月」的预期余额（统计用）。month 缺省=最新有细节的月 */
+  /**
+   * 各储蓄卡「截至某月」用于统计的预期余额：只含 收入 − 调出，
+   * **不含支出**（支出不参与储蓄-预算的差额计算）。
+   */
   async expectedBalance(cardId: string, month: string): Promise<Cents> {
     const [rows, initial] = await Promise.all([
       db.budgetDetails.where('cardId').equals(cardId).toArray(),
@@ -102,7 +109,8 @@ export const budgetPlanService = {
     ]);
     let bal = initial;
     for (const r of rows) {
-      if (r.month <= month) bal += r.kind === 'IN' ? r.amount : -r.amount;
+      if (r.month > month || r.kind === 'EXPENSE') continue; // 排除支出
+      bal += r.kind === 'IN' ? r.amount : -r.amount;
     }
     return bal;
   },

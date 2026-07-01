@@ -55,11 +55,17 @@ export function BudgetCardPage() {
   );
 }
 
+const KIND_LABEL: Record<'IN' | 'OUT' | 'EXPENSE', string> = {
+  IN: '计划收入',
+  OUT: '计划调出',
+  EXPENSE: '计划支出',
+};
+
 function MonthSection({ cardId, m }: { cardId: string; m: BudgetMonthDTO }) {
   const addDetail = useAddBudgetDetail();
   const delDetail = useDeleteBudgetDetail();
   const [label, setLabel] = useState('');
-  const [kind, setKind] = useState<'IN' | 'OUT'>('IN');
+  const [kind, setKind] = useState<'IN' | 'OUT' | 'EXPENSE'>('IN');
   const [amount, setAmount] = useState('');
 
   const submit = async () => {
@@ -80,7 +86,7 @@ function MonthSection({ cardId, m }: { cardId: string; m: BudgetMonthDTO }) {
             <div className="tx" key={d.id}>
               <div>
                 <div>{d.label}</div>
-                <div className="meta">{d.kind === 'IN' ? '计划收入' : '计划调出'}</div>
+                <div className="meta">{KIND_LABEL[d.kind]}</div>
               </div>
               <div className="row-between">
                 <span className={`amt ${d.kind === 'IN' ? 'in' : 'out'}`}>
@@ -104,6 +110,9 @@ function MonthSection({ cardId, m }: { cardId: string; m: BudgetMonthDTO }) {
             </button>
             <button className={kind === 'OUT' ? 'active' : ''} onClick={() => setKind('OUT')}>
               调出
+            </button>
+            <button className={kind === 'EXPENSE' ? 'active' : ''} onClick={() => setKind('EXPENSE')}>
+              支出
             </button>
           </div>
           <input

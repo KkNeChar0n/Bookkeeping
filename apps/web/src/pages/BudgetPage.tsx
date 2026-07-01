@@ -67,7 +67,7 @@ function BudgetRow({ card, open, onToggle }: { card: Card; open: boolean; onTogg
             v.details.map((d) => (
               <div className="kv" key={d.id}>
                 <span className="muted">
-                  {d.kind === 'IN' ? '收入' : '调出'} · {d.label}
+                  {d.kind === 'IN' ? '收入' : d.kind === 'OUT' ? '调出' : '支出'} · {d.label}
                 </span>
                 <span className={d.kind === 'IN' ? 'pos' : 'neg'}>
                   {d.kind === 'IN' ? '+' : '−'}
