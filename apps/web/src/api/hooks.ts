@@ -208,6 +208,13 @@ export function useDeleteBudgetDetail() {
   const inv = useInvalidateLedger();
   return useMutation({ mutationFn: (id: string) => budgetPlanService.deleteDetail(id), onSuccess: inv });
 }
+export function useBudgetCurrentMonth(cardId: string, month: string) {
+  return useQuery({
+    queryKey: ['budgetPlan', 'current', cardId, month],
+    queryFn: () => budgetPlanService.currentMonthView(cardId, month),
+    enabled: !!cardId,
+  });
+}
 
 // ---- 每月真实储蓄额 ----
 export function useSavingsList(cardId: string) {

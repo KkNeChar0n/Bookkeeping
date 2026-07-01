@@ -436,11 +436,14 @@ td:first-child {
   gap: 6px;
   margin-top: 10px;
 }
-.card-row-actions .mini {
+.mini {
   padding: 7px 12px;
   font-size: 13px;
   white-space: nowrap;
   border-radius: 8px;
+}
+.ml {
+  margin-left: 6px;
 }
 
 /* ---- 主页：叠放卡片 ---- */

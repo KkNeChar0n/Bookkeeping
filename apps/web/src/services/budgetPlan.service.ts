@@ -80,6 +80,20 @@ export const budgetPlanService = {
     await db.budgetDetails.delete(id);
   },
 
+  /** 某储蓄卡当前月份视图：本月预期余额 + 本月细节 */
+  async currentMonthView(
+    cardId: string,
+    month: string,
+  ): Promise<{ month: string; expected: string; details: BudgetDetailDTO[] }> {
+    const all = await this.months(cardId, [month]);
+    const m = all.find((x) => x.month === month);
+    return {
+      month,
+      expected: m ? m.expected : fromCents(await this.expectedBalance(cardId, month)),
+      details: m ? m.details : [],
+    };
+  },
+
   /** 各储蓄卡「截至某月」的预期余额（统计用）。month 缺省=最新有细节的月 */
   async expectedBalance(cardId: string, month: string): Promise<Cents> {
     const [rows, initial] = await Promise.all([
