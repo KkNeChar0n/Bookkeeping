@@ -1,13 +1,15 @@
-import { useCardViews } from '../api/hooks';
+import { useCardViews, useSavingsSummary } from '../api/hooks';
 import { fmtMoney, fmtSigned } from '../lib/format';
 import type { CardView } from '../api/types';
+import type { SavingsSummaryRow } from '../services/savingsSummary.service';
 
 export function SummaryPage() {
   const views = useCardViews();
+  const savingsSummary = useSavingsSummary();
   const all = views.data ?? [];
   const spend = all.filter((v) => v.type === 'SPEND');
-  const savings = all.filter((v) => v.type === 'SAVINGS');
   const fund = all.filter((v) => v.type === 'FUND');
+  const savings = savingsSummary.data ?? [];
 
   return (
     <div>
@@ -24,7 +26,7 @@ export function SummaryPage() {
       </div>
 
       {/* 储蓄：实际 vs 预算 差额 */}
-      <div className="section-title">储蓄 · 实际与预算差额</div>
+      <div className="section-title">储蓄 · 实际与预期差额</div>
       <div className="card">
         {savings.length ? (
           savings.map((v) => <SavingsRow key={v.cardId} v={v} />)
@@ -63,15 +65,22 @@ function SpendRow({ v }: { v: CardView }) {
   );
 }
 
-function SavingsRow({ v }: { v: CardView }) {
-  const diff = Number(v.diff);
+function SavingsRow({ v }: { v: SavingsSummaryRow }) {
+  const diff = v.diff !== null ? Number(v.diff) : null;
   return (
     <div className="tx">
       <div>
         <div>{v.cardName}</div>
-        <div className="meta">实际 {fmtMoney(v.balance)} · 预算 {fmtMoney(v.budgetBalance)}</div>
+        <div className="meta">
+          {v.month} · 实际 {v.actual !== null ? fmtMoney(v.actual) : '未填'} · 预期{' '}
+          {fmtMoney(v.expected)}
+        </div>
       </div>
-      <span className={`amt ${diff >= 0 ? 'in' : 'out'}`}>{fmtSigned(v.diff)}</span>
+      {diff !== null ? (
+        <span className={`amt ${diff >= 0 ? 'in' : 'out'}`}>{fmtSigned(v.diff!)}</span>
+      ) : (
+        <span className="amt neutral">—</span>
+      )}
     </div>
   );
 }

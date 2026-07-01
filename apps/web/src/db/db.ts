@@ -43,11 +43,33 @@ export interface TransactionRow {
   createdAt: number;
 }
 
+// 预算细节（储蓄卡·按月）：一条条计划收入/调出
+export interface BudgetDetailRow {
+  id: string;
+  cardId: string;
+  month: string; // YYYY-MM
+  label: string;
+  kind: 'IN' | 'OUT';
+  amount: number; // cents（正数）
+  createdAt: number;
+}
+
+// 每月真实储蓄额（储蓄卡·每月1号一个数）
+export interface SavingsActualRow {
+  id: string;
+  cardId: string;
+  month: string; // YYYY-MM
+  amount: number; // cents
+  updatedAt: number;
+}
+
 export class BookkeepingDB extends Dexie {
   cards!: Table<CardRow, string>;
   budgetSnapshots!: Table<BudgetSnapshotRow, string>;
   budgetLines!: Table<BudgetLineRow, string>;
   transactions!: Table<TransactionRow, string>;
+  budgetDetails!: Table<BudgetDetailRow, string>;
+  savingsActuals!: Table<SavingsActualRow, string>;
 
   constructor() {
     super('bookkeeping');
@@ -68,6 +90,11 @@ export class BookkeepingDB extends Dexie {
             if (!c.type) c.type = 'SAVINGS';
           });
       });
+    // v3：储蓄卡按月预算细节 + 每月真实储蓄额
+    this.version(3).stores({
+      budgetDetails: 'id, cardId, [cardId+month]',
+      savingsActuals: 'id, &[cardId+month], cardId',
+    });
   }
 }
 

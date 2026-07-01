@@ -3,7 +3,8 @@ import { NavLink, Outlet } from 'react-router-dom';
 const tabs = [
   { to: '/', label: '记账', ico: '✏️', end: true },
   { to: '/budget', label: '预算', ico: '📊' },
-  { to: '/summary', label: '总结', ico: '📈' },
+  { to: '/savings', label: '储蓄', ico: '🏦' },
+  { to: '/summary', label: '统计', ico: '📈' },
   { to: '/cards', label: '卡片', ico: '💳' },
 ];
 

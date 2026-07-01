@@ -6,6 +6,9 @@ import { txService } from '../services/transactions.service';
 import { comparisonService } from '../services/comparison.service';
 import { summaryService } from '../services/summary.service';
 import { cardViewService } from '../services/cardview.service';
+import { budgetPlanService } from '../services/budgetPlan.service';
+import { savingsActualService } from '../services/savingsActual.service';
+import { savingsSummaryService } from '../services/savingsSummary.service';
 import { categoriesService } from '../services/categories';
 
 // ---- 失效所有受余额影响的视图 ----
@@ -18,6 +21,8 @@ function useInvalidateLedger() {
     qc.invalidateQueries({ queryKey: ['comparison'] });
     qc.invalidateQueries({ queryKey: ['summary'] });
     qc.invalidateQueries({ queryKey: ['cardviews'] });
+    qc.invalidateQueries({ queryKey: ['budgetPlan'] });
+    qc.invalidateQueries({ queryKey: ['savings'] });
   };
 }
 
@@ -172,6 +177,56 @@ export function useCardViews(date?: string) {
     queryKey: ['cardviews', date ?? 'today'],
     queryFn: () => cardViewService.list(date),
   });
+}
+
+// ---- 储蓄卡预算细节（按月） ----
+export function useBudgetMonths(cardId: string, extraMonths: string[] = []) {
+  return useQuery({
+    queryKey: ['budgetPlan', cardId, extraMonths],
+    queryFn: () => budgetPlanService.months(cardId, extraMonths),
+    enabled: !!cardId,
+  });
+}
+export function useAddBudgetDetail() {
+  const inv = useInvalidateLedger();
+  return useMutation({
+    mutationFn: (body: {
+      cardId: string;
+      month: string;
+      label: string;
+      kind: 'IN' | 'OUT';
+      amount: string;
+    }) => budgetPlanService.addDetail(body),
+    onSuccess: inv,
+  });
+}
+export function useDeleteBudgetDetail() {
+  const inv = useInvalidateLedger();
+  return useMutation({ mutationFn: (id: string) => budgetPlanService.deleteDetail(id), onSuccess: inv });
+}
+
+// ---- 每月真实储蓄额 ----
+export function useSavingsList(cardId: string) {
+  return useQuery({
+    queryKey: ['savings', cardId],
+    queryFn: () => savingsActualService.list(cardId),
+    enabled: !!cardId,
+  });
+}
+export function useSetSavingsAmount() {
+  const inv = useInvalidateLedger();
+  return useMutation({
+    mutationFn: (body: { cardId: string; month: string; amount: string }) =>
+      savingsActualService.setAmount(body),
+    onSuccess: inv,
+  });
+}
+export function useRemoveSavings() {
+  const inv = useInvalidateLedger();
+  return useMutation({ mutationFn: (id: string) => savingsActualService.remove(id), onSuccess: inv });
+}
+export function useSavingsSummary() {
+  return useQuery({ queryKey: ['savings', 'summary'], queryFn: () => savingsSummaryService.list() });
 }
 
 // ---- Comparison / Summary ----
