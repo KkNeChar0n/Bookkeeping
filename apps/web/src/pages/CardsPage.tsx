@@ -5,7 +5,6 @@ import {
   useCreateCard,
   useDeleteCard,
   useReorderCards,
-  useSetDefaultCard,
   useUpdateCard,
 } from '../api/hooks';
 import { backupService } from '../services/backup.service';
@@ -16,7 +15,6 @@ export function CardsPage() {
   const create = useCreateCard();
   const update = useUpdateCard();
   const del = useDeleteCard();
-  const setDefault = useSetDefaultCard();
   const reorder = useReorderCards();
   const qc = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -162,11 +160,6 @@ export function CardsPage() {
                 <button className="mini" onClick={() => editInitial(c.id, c.initialBalance)}>
                   改余额
                 </button>
-                {!c.isDefault && (
-                  <button className="mini" onClick={() => setDefault.mutate(c.id)}>
-                    设默认
-                  </button>
-                )}
                 <button className="mini danger" onClick={() => remove(c.id)}>
                   删除
                 </button>

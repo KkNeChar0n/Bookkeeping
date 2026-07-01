@@ -118,8 +118,10 @@ export function DailyPage() {
       </div>
 
       <div className="stack">
-        {views.data?.length ? (
-          views.data.map((v) => {
+        {(() => {
+          const spendCards = views.data?.filter((v) => v.type === 'SPEND') ?? [];
+          return spendCards.length ? (
+            spendCards.map((v) => {
             const open = openId === v.cardId;
             const diffNum = Number(v.diff);
             return (
@@ -158,11 +160,12 @@ export function DailyPage() {
                   </>
                 )}
               </div>
-            );
-          })
-        ) : (
-          <div className="card muted">还没有卡片，去「卡片」页添加。</div>
-        )}
+              );
+            })
+          ) : (
+            <div className="card muted">还没有消费卡，去「卡片」页添加一张消费卡。</div>
+          );
+        })()}
       </div>
     </div>
   );

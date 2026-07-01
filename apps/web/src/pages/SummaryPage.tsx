@@ -1,84 +1,93 @@
-import { useState } from 'react';
-import { useSummary } from '../api/hooks';
-import { ComparisonCards } from '../components/ComparisonCards';
-import { fmtMoney, currentMonthStr } from '../lib/format';
-
-function pctText(p: number | null): string {
-  if (p === null) return '—';
-  return `${p > 0 ? '+' : ''}${p}%`;
-}
+import { useCardViews } from '../api/hooks';
+import { fmtMoney, fmtSigned } from '../lib/format';
+import type { CardView } from '../api/types';
 
 export function SummaryPage() {
-  const [month, setMonth] = useState(currentMonthStr());
-  const summary = useSummary(month);
-  const s = summary.data;
+  const views = useCardViews();
+  const all = views.data ?? [];
+  const spend = all.filter((v) => v.type === 'SPEND');
+  const savings = all.filter((v) => v.type === 'SAVINGS');
+  const fund = all.filter((v) => v.type === 'FUND');
 
   return (
     <div>
-      <h1 className="page-title">总结</h1>
+      <h1 className="page-title">统计</h1>
 
-      <div className="field">
-        <label>月份</label>
-        <input type="month" value={month} onChange={(e) => setMonth(e.target.value)} />
+      {/* 消费：超支情况 */}
+      <div className="section-title">消费 · 超支情况</div>
+      <div className="card">
+        {spend.length ? (
+          spend.map((v) => <SpendRow key={v.cardId} v={v} />)
+        ) : (
+          <div className="muted">没有消费卡</div>
+        )}
       </div>
 
-      {s && (
-        <>
-          <div className="section-title">本月真实收支（不含调账/调整）</div>
-          <div className="stat">
-            <div className="box">
-              <div className="k">收入</div>
-              <div className="v" style={{ color: 'var(--green)' }}>
-                {fmtMoney(s.current.income)}
-              </div>
-            </div>
-            <div className="box">
-              <div className="k">支出</div>
-              <div className="v" style={{ color: 'var(--red)' }}>
-                {fmtMoney(s.current.expense)}
-              </div>
-            </div>
-          </div>
+      {/* 储蓄：实际 vs 预算 差额 */}
+      <div className="section-title">储蓄 · 实际与预算差额</div>
+      <div className="card">
+        {savings.length ? (
+          savings.map((v) => <SavingsRow key={v.cardId} v={v} />)
+        ) : (
+          <div className="muted">没有储蓄卡</div>
+        )}
+      </div>
 
-          <div className="section-title">环比 / 同比</div>
-          <div className="card">
-            <table>
-              <thead>
-                <tr>
-                  <th>对比</th>
-                  <th>收入</th>
-                  <th>支出</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td>上月（{s.m2m.previous.label}）</td>
-                  <td>{fmtMoney(s.m2m.previous.income)}</td>
-                  <td>{fmtMoney(s.m2m.previous.expense)}</td>
-                </tr>
-                <tr>
-                  <td>月环比</td>
-                  <td>{pctText(s.m2m.incomePct)}</td>
-                  <td>{pctText(s.m2m.expensePct)}</td>
-                </tr>
-                <tr>
-                  <td>去年同月（{s.y2y.sameMonthLastYear.label}）</td>
-                  <td>{fmtMoney(s.y2y.sameMonthLastYear.income)}</td>
-                  <td>{fmtMoney(s.y2y.sameMonthLastYear.expense)}</td>
-                </tr>
-                <tr>
-                  <td>年同比</td>
-                  <td>{pctText(s.y2y.incomePct)}</td>
-                  <td>{pctText(s.y2y.expensePct)}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+      {/* 基金：营收 */}
+      <div className="section-title">基金 · 营收</div>
+      <div className="card">
+        {fund.length ? (
+          fund.map((v) => <FundRow key={v.cardId} v={v} />)
+        ) : (
+          <div className="muted">没有基金</div>
+        )}
+      </div>
+    </div>
+  );
+}
 
-          <div className="section-title">预算 vs 实际</div>
-          <ComparisonCards data={s.budgetVsActual} />
-        </>
+function SpendRow({ v }: { v: CardView }) {
+  const over = Math.max(0, -Number(v.balance));
+  return (
+    <div className="tx">
+      <div>
+        <div>{v.cardName}</div>
+        <div className="meta">已消费 {fmtMoney(v.spent)} · 余额 {fmtMoney(v.balance)}</div>
+      </div>
+      {v.overspent ? (
+        <span className="amt out">超支 {fmtMoney(over)}</span>
+      ) : (
+        <span className="amt in">未超支</span>
       )}
+    </div>
+  );
+}
+
+function SavingsRow({ v }: { v: CardView }) {
+  const diff = Number(v.diff);
+  return (
+    <div className="tx">
+      <div>
+        <div>{v.cardName}</div>
+        <div className="meta">实际 {fmtMoney(v.balance)} · 预算 {fmtMoney(v.budgetBalance)}</div>
+      </div>
+      <span className={`amt ${diff >= 0 ? 'in' : 'out'}`}>{fmtSigned(v.diff)}</span>
+    </div>
+  );
+}
+
+function FundRow({ v }: { v: CardView }) {
+  const p = Number(v.profit);
+  return (
+    <div className="tx">
+      <div>
+        <div>{v.cardName}</div>
+        <div className="meta">市值 {fmtMoney(v.balance)} · 本金 {fmtMoney(v.principal)}</div>
+      </div>
+      <span className={`amt ${p >= 0 ? 'in' : 'out'}`}>
+        {fmtSigned(v.profit)}
+        {v.profitPct !== null ? `（${v.profitPct > 0 ? '+' : ''}${v.profitPct}%）` : ''}
+      </span>
     </div>
   );
 }
