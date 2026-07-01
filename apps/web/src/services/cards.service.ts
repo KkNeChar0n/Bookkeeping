@@ -10,6 +10,8 @@ function toDTO(c: CardRow): Card {
     initialBalance: fromCents(c.initialBalance),
     isDefault: c.isDefault === 1,
     sortOrder: c.sortOrder,
+    fundPrincipal: fromCents(c.fundPrincipal ?? c.initialBalance),
+    fundValue: fromCents(c.fundValue ?? c.initialBalance),
   };
 }
 
@@ -33,14 +35,18 @@ export const cardsService = {
     if (!name) throw new Error('卡片名称不能为空');
     const rows = await db.cards.toArray();
     const sortOrder = rows.reduce((m, r) => Math.max(m, r.sortOrder), -1) + 1;
+    const initial = toCents(input.initialBalance ?? '0');
+    const type = input.type ?? 'SAVINGS';
     const row: CardRow = {
       id: newId(),
       name,
-      type: input.type ?? 'SAVINGS',
-      initialBalance: toCents(input.initialBalance ?? '0'),
+      type,
+      initialBalance: initial,
       isDefault: input.isDefault ? 1 : 0,
       sortOrder,
       createdAt: nowTs(),
+      // 基金：本金/市值起点 = 初始
+      ...(type === 'FUND' ? { fundPrincipal: initial, fundValue: initial } : {}),
     };
     await db.transaction('rw', db.cards, async () => {
       if (input.isDefault) {
@@ -78,6 +84,17 @@ export const cardsService = {
     if (asCard + asPeer > 0) throw new Error('该卡存在关联流水，不能删除');
     await db.cards.delete(id);
     return { ok: true };
+  },
+
+  /** 基金：直接设置本金 / 市值（两个数） */
+  async setFund(id: string, input: { principal?: string; value?: string }): Promise<Card> {
+    const existing = await db.cards.get(id);
+    if (!existing) throw new Error('卡片不存在');
+    const patch: Partial<CardRow> = {};
+    if (input.principal !== undefined) patch.fundPrincipal = toCents(input.principal);
+    if (input.value !== undefined) patch.fundValue = toCents(input.value);
+    await db.cards.update(id, patch);
+    return toDTO({ ...existing, ...patch });
   },
 
   async setDefault(id: string): Promise<{ ok: true }> {

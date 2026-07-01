@@ -31,9 +31,11 @@ export const cardViewService = {
     return cards.map((c) => {
       const a = agg.get(c.id)!;
       const budgetBal = budgetByCard.get(c.id) ?? 0;
-      // 基金：本金 = 初始 + 调账净额；盈亏 = 累计市值调整
-      const principal = c.initialBalance + a.transferNet;
-      const profit = a.adjust;
+      const isFund = c.type === 'FUND';
+      // 基金：本金/市值为直填的两个数；盈亏 = 市值 − 本金
+      const principal = isFund ? (c.fundPrincipal ?? c.initialBalance) : c.initialBalance + a.transferNet;
+      const value = isFund ? (c.fundValue ?? c.initialBalance) : a.balance;
+      const profit = isFund ? value - principal : a.adjust;
       const profitPct = principal !== 0 ? Math.round((profit / principal) * 10000) / 100 : null;
       // 超支：消费卡看余额<0；其它看实际<预算
       const overspent = c.type === 'SPEND' ? a.balance < 0 : a.balance < budgetBal;
@@ -41,9 +43,9 @@ export const cardViewService = {
         cardId: c.id,
         cardName: c.name,
         type: c.type ?? 'SAVINGS',
-        balance: fromCents(a.balance),
+        balance: fromCents(value),
         budgetBalance: fromCents(budgetBal),
-        diff: fromCents(a.balance - budgetBal),
+        diff: fromCents(value - budgetBal),
         overspent,
         income: fromCents(a.income),
         spent: fromCents(a.spent),

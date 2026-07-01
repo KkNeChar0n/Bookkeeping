@@ -6,11 +6,10 @@ import {
   useCategories,
   useCreateEntry,
   useDeleteTransaction,
-  useSetBalance,
+  useSetFund,
   useSetQuota,
   useSpendCardMonth,
   useTransactions,
-  useTransfer,
 } from '../api/hooks';
 import { CARD_TYPE_LABEL } from '../api/types';
 import { CardManageBar } from '../components/CardManageBar';
@@ -50,12 +49,7 @@ export function CardDetailPage() {
       {card.type === 'SPEND' ? (
         <SpendDetail cardId={id} cardName={card.name} onDeleted={() => navigate('/')} />
       ) : (
-        <FundDetail
-          cardId={id}
-          cardName={card.name}
-          initialBalance={card.initialBalance}
-          onDeleted={() => navigate('/summary')}
-        />
+        <FundDetail cardId={id} cardName={card.name} onDeleted={() => navigate('/fund')} />
       )}
     </div>
   );
@@ -221,25 +215,43 @@ function SpendDetail({
   );
 }
 
-// ---------- 基金：市值/本金/盈亏 + 调账/更新市值 ----------
+// ---------- 基金：直填本金/市值两个数，盈亏自动算 ----------
 function FundDetail({
   cardId,
   cardName,
-  initialBalance,
   onDeleted,
 }: {
   cardId: string;
   cardName: string;
-  initialBalance: string;
   onDeleted: () => void;
 }) {
   const views = useCardViews();
   const cards = useCards();
-  const transfer = useTransfer();
-  const setBalance = useSetBalance();
-  const delTx = useDeleteTransaction();
+  const setFund = useSetFund();
   const [msg, setMsg] = useState('');
   const view = views.data?.find((v) => v.cardId === cardId);
+  const card = cards.data?.find((c) => c.id === cardId);
+
+  const [principal, setPrincipal] = useState('');
+  const [value, setValue] = useState('');
+
+  // 初始填入当前值
+  const curPrincipal = card?.fundPrincipal ?? '0';
+  const curValue = card?.fundValue ?? '0';
+
+  const save = async () => {
+    setMsg('');
+    const body: { id: string; principal?: string; value?: string } = { id: cardId };
+    if (principal) body.principal = principal;
+    if (value) body.value = value;
+    if (!body.principal && !body.value) return;
+    await setFund.mutateAsync(body);
+    setPrincipal('');
+    setValue('');
+    setMsg('已更新');
+  };
+
+  const p = view ? Number(view.profit) : 0;
 
   return (
     <>
@@ -248,132 +260,45 @@ function FundDetail({
           <span className="muted">市值</span>
           <div className="big">{fmtMoney(view?.balance ?? '0')}</div>
           {view && (
-            <div className={`muted ${Number(view.profit) >= 0 ? 'pos' : 'neg'}`}>
+            <div className={`muted ${p >= 0 ? 'pos' : 'neg'}`}>
               盈亏 {fmtSigned(view.profit)}
-              {view.profitPct !== null ? `（${view.profitPct}%）` : ''} · 本金 {fmtMoney(view.principal)}
+              {view.profitPct !== null ? `（${view.profitPct > 0 ? '+' : ''}${view.profitPct}%）` : ''} · 本金{' '}
+              {fmtMoney(view.principal)}
             </div>
           )}
         </div>
       </div>
 
-      <FundActions
-        cardId={cardId}
-        cards={cards.data ?? []}
-        onTransfer={(b) => transfer.mutateAsync(b).then(() => setMsg('调账完成'))}
-        onSetValue={(t) =>
-          setBalance.mutateAsync({ cardId, targetBalance: t, note: '市值更新' }).then(() => setMsg('已更新市值'))
-        }
-      />
-      {msg && <div className="muted mt">{msg}</div>}
-
-      <div className="section-title">流水</div>
-      <TxList cardId={cardId} onDelete={(txId) => delTx.mutate(txId)} />
-
-      <CardManageBar
-        cardId={cardId}
-        name={cardName}
-        initialBalance={initialBalance}
-        showInitial
-        onDeleted={onDeleted}
-      />
-    </>
-  );
-}
-
-function FundActions({
-  cardId,
-  cards,
-  onTransfer,
-  onSetValue,
-}: {
-  cardId: string;
-  cards: { id: string; name: string }[];
-  onTransfer: (b: {
-    cardId: string;
-    direction: 'OUT' | 'IN';
-    peerCardId: string;
-    amount: string;
-  }) => Promise<unknown>;
-  onSetValue: (target: string) => Promise<unknown>;
-}) {
-  const [open, setOpen] = useState<'none' | 'transfer' | 'value'>('none');
-  const [dir, setDir] = useState<'OUT' | 'IN'>('IN');
-  const [peer, setPeer] = useState('');
-  const [amt, setAmt] = useState('');
-  const [val, setVal] = useState('');
-
-  return (
-    <div className="mt">
-      <div className="row-between" style={{ gap: 8 }}>
-        <button style={{ flex: 1 }} onClick={() => setOpen(open === 'transfer' ? 'none' : 'transfer')}>
-          申购/赎回
+      <div className="section-title">更新（从基金 App 抄这两个数）</div>
+      <div className="card">
+        <div className="field">
+          <label>累计投入 · 本金（当前 {fmtMoney(curPrincipal)}）</label>
+          <input
+            type="number"
+            step="0.01"
+            placeholder="不改可留空"
+            value={principal}
+            onChange={(e) => setPrincipal(e.target.value)}
+          />
+        </div>
+        <div className="field">
+          <label>当前市值（当前 {fmtMoney(curValue)}）</label>
+          <input
+            type="number"
+            step="0.01"
+            placeholder="不改可留空"
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+          />
+        </div>
+        <button className="primary" onClick={save} disabled={!principal && !value}>
+          保存
         </button>
-        <button style={{ flex: 1 }} onClick={() => setOpen(open === 'value' ? 'none' : 'value')}>
-          更新市值
-        </button>
+        {msg && <div className="muted mt">{msg}</div>}
       </div>
 
-      {open === 'transfer' && (
-        <div className="card mt">
-          <div className="seg" style={{ marginBottom: 10 }}>
-            <button className={dir === 'IN' ? 'active' : ''} onClick={() => setDir('IN')}>
-              申购(转入)
-            </button>
-            <button className={dir === 'OUT' ? 'active' : ''} onClick={() => setDir('OUT')}>
-              赎回(转出)
-            </button>
-          </div>
-          <div className="field">
-            <label>对手卡</label>
-            <select value={peer} onChange={(e) => setPeer(e.target.value)}>
-              <option value="">选择</option>
-              {cards
-                .filter((c) => c.id !== cardId)
-                .map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-            </select>
-          </div>
-          <div className="field">
-            <label>金额</label>
-            <input type="number" step="0.01" value={amt} onChange={(e) => setAmt(e.target.value)} />
-          </div>
-          <button
-            className="primary"
-            disabled={!peer || !amt}
-            onClick={async () => {
-              await onTransfer({ cardId, direction: dir, peerCardId: peer, amount: amt });
-              setAmt('');
-              setOpen('none');
-            }}
-          >
-            提交
-          </button>
-        </div>
-      )}
-
-      {open === 'value' && (
-        <div className="card mt">
-          <div className="field">
-            <label>当前市值（按最新净值填写）</label>
-            <input type="number" step="0.01" value={val} onChange={(e) => setVal(e.target.value)} />
-          </div>
-          <button
-            className="primary"
-            disabled={!val}
-            onClick={async () => {
-              await onSetValue(val);
-              setVal('');
-              setOpen('none');
-            }}
-          >
-            更新
-          </button>
-        </div>
-      )}
-    </div>
+      <CardManageBar cardId={cardId} name={cardName} onDeleted={onDeleted} />
+    </>
   );
 }
 

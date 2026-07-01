@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { SavingsStack } from '../components/SavingsStack';
+import { CardStack } from '../components/CardStack';
 import { CreateCardForm } from '../components/CreateCardForm';
 import { BackupPanel } from '../components/BackupPanel';
 
@@ -11,7 +11,7 @@ export function SavingsPage() {
       <div className="muted date-hint" style={{ textAlign: 'left', marginBottom: 12 }}>
         每月 1 号给每张储蓄卡填一个真实储蓄金额。
       </div>
-      <SavingsStack basePath="/savings" />
+      <CardStack type="SAVINGS" basePath="/savings" />
 
       <div className="spacer" />
       <button onClick={() => setShowCreate((s) => !s)}>{showCreate ? '收起' : '＋ 新建储蓄卡'}</button>

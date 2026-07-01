@@ -6,6 +6,7 @@ import { BudgetPage } from './pages/BudgetPage';
 import { BudgetCardPage } from './pages/BudgetCardPage';
 import { SavingsPage } from './pages/SavingsPage';
 import { SavingsCardPage } from './pages/SavingsCardPage';
+import { FundPage } from './pages/FundPage';
 import { SummaryPage } from './pages/SummaryPage';
 
 export function App() {
@@ -19,6 +20,7 @@ export function App() {
           <Route path="/budget/:id" element={<BudgetCardPage />} />
           <Route path="/savings" element={<SavingsPage />} />
           <Route path="/savings/:id" element={<SavingsCardPage />} />
+          <Route path="/fund" element={<FundPage />} />
           <Route path="/summary" element={<SummaryPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>

@@ -1,7 +1,10 @@
-import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useCardViews, useSavingsSummary, useSpendMonth } from '../api/hooks';
-import { CreateCardForm } from '../components/CreateCardForm';
+import {
+  useCardViews,
+  useReconciliation,
+  useSavingsSummary,
+  useSpendMonth,
+} from '../api/hooks';
 import { currentMonthStr, fmtMoney, fmtSigned } from '../lib/format';
 import type { SavingsSummaryRow } from '../services/savingsSummary.service';
 import type { SpendMonthView } from '../services/spend.service';
@@ -11,12 +14,13 @@ export function SummaryPage() {
   const spend = useSpendMonth(month);
   const savingsSummary = useSavingsSummary();
   const views = useCardViews();
+  const recon = useReconciliation();
   const navigate = useNavigate();
-  const [showCreateFund, setShowCreateFund] = useState(false);
 
   const spendRows = spend.data ?? [];
   const savings = savingsSummary.data ?? [];
   const fund = (views.data ?? []).filter((v) => v.type === 'FUND');
+  const r = recon.data;
 
   return (
     <div>
@@ -59,14 +63,49 @@ export function SummaryPage() {
           <div className="muted">没有基金</div>
         )}
       </div>
-      <div className="mt">
-        <button onClick={() => setShowCreateFund((s) => !s)}>
-          {showCreateFund ? '收起' : '＋ 新建基金'}
-        </button>
-        {showCreateFund && (
-          <div className="mt">
-            <CreateCardForm type="FUND" placeholder="如：某某基金" />
-          </div>
+      {/* 对账块 */}
+      <div className="section-title">对账（总资产：储蓄 + 基金）</div>
+      <div className="card">
+        {r ? (
+          <table>
+            <tbody>
+              <tr>
+                <td>预算总资产</td>
+                <td>{fmtMoney(r.budgetTotal)}</td>
+              </tr>
+              <tr>
+                <td>实际总资产</td>
+                <td>{fmtMoney(r.actualTotal)}</td>
+              </tr>
+              <tr>
+                <td>
+                  <strong>差额（实际−预算）</strong>
+                </td>
+                <td>
+                  <strong className={Number(r.diff) >= 0 ? 'pos' : 'neg'}>{fmtSigned(r.diff)}</strong>
+                </td>
+              </tr>
+              <tr>
+                <td className="muted">· 基金盈亏</td>
+                <td className={Number(r.fundProfit) >= 0 ? 'pos' : 'neg'}>{fmtSigned(r.fundProfit)}</td>
+              </tr>
+              <tr>
+                <td className="muted">· 消费超支</td>
+                <td className={Number(r.overspend) > 0 ? 'neg' : ''}>
+                  {Number(r.overspend) > 0 ? `−${fmtMoney(r.overspend)}` : '0.00'}
+                </td>
+              </tr>
+              <tr>
+                <td className="muted">· 利息/其他</td>
+                <td className={Number(r.interest) >= 0 ? 'pos' : 'neg'}>{fmtSigned(r.interest)}</td>
+              </tr>
+            </tbody>
+          </table>
+        ) : (
+          <div className="muted">暂无数据</div>
+        )}
+        {r && !r.savingsFilled && (
+          <div className="warn mt">部分储蓄卡当月还没填真实金额，总资产/差额暂不完整。</div>
         )}
       </div>
     </div>

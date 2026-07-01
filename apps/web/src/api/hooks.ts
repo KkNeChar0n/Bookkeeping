@@ -10,6 +10,7 @@ import { budgetPlanService } from '../services/budgetPlan.service';
 import { savingsActualService } from '../services/savingsActual.service';
 import { savingsSummaryService } from '../services/savingsSummary.service';
 import { spendService } from '../services/spend.service';
+import { reconciliationService } from '../services/reconciliation.service';
 import { categoriesService } from '../services/categories';
 
 // ---- 失效所有受余额影响的视图 ----
@@ -25,6 +26,7 @@ function useInvalidateLedger() {
     qc.invalidateQueries({ queryKey: ['budgetPlan'] });
     qc.invalidateQueries({ queryKey: ['savings'] });
     qc.invalidateQueries({ queryKey: ['spend'] });
+    qc.invalidateQueries({ queryKey: ['reconciliation'] });
   };
 }
 
@@ -249,6 +251,21 @@ export function useSetQuota() {
       spendService.setQuota(body),
     onSuccess: inv,
   });
+}
+
+// ---- 基金：直填本金/市值 ----
+export function useSetFund() {
+  const inv = useInvalidateLedger();
+  return useMutation({
+    mutationFn: ({ id, ...body }: { id: string; principal?: string; value?: string }) =>
+      cardsService.setFund(id, body),
+    onSuccess: inv,
+  });
+}
+
+// ---- 对账 ----
+export function useReconciliation() {
+  return useQuery({ queryKey: ['reconciliation'], queryFn: () => reconciliationService.compute() });
 }
 
 // ---- Comparison / Summary ----

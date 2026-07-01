@@ -9,10 +9,13 @@ export interface CardRow {
   id: string;
   name: string;
   type: CardType;
-  initialBalance: number; // cents
+  initialBalance: number; // cents（储蓄卡用作预算基数）
   isDefault: number; // 0/1（Dexie 索引友好）
   sortOrder: number;
   createdAt: number;
+  // 基金专用：直接填的两个数（分）
+  fundPrincipal?: number; // 累计投入本金
+  fundValue?: number; // 当前市值
 }
 
 export interface BudgetSnapshotRow {

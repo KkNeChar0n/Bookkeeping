@@ -4,7 +4,8 @@ const tabs = [
   { to: '/', label: '记账', ico: '✏️', end: true },
   { to: '/budget', label: '预算', ico: '📊' },
   { to: '/savings', label: '储蓄', ico: '🏦' },
-  { to: '/summary', label: '统计', ico: '📈' },
+  { to: '/fund', label: '基金', ico: '📈' },
+  { to: '/summary', label: '统计', ico: '🧮' },
 ];
 
 export function Layout() {
