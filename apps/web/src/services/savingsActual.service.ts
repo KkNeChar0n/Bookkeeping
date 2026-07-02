@@ -65,6 +65,13 @@ export const savingsActualService = {
     return rows.filter((r) => r.month <= month).reduce((s, r) => s + (r.income ?? 0), 0);
   },
 
+  /** 某储蓄卡截至某月的真实余额（取 ≤refMonth 的最近一条），无则 null */
+  async balanceAsOf(cardId: string, refMonth: string): Promise<{ month: string; amount: Cents } | null> {
+    const rows = await db.savingsActuals.where('cardId').equals(cardId).toArray();
+    const le = rows.filter((r) => r.month <= refMonth).sort((a, b) => b.month.localeCompare(a.month));
+    return le.length ? { month: le[0].month, amount: le[0].amount } : null;
+  },
+
   async remove(id: string): Promise<void> {
     await db.savingsActuals.delete(id);
   },

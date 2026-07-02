@@ -241,6 +241,9 @@ export function useSpendCardMonth(cardId: string, month: string) {
     enabled: !!cardId,
   });
 }
+export function useSpendPeriod(prefix: string) {
+  return useQuery({ queryKey: ['spend', 'period', prefix], queryFn: () => spendService.periodView(prefix) });
+}
 export function useSetQuota() {
   const inv = useInvalidateLedger();
   return useMutation({
@@ -266,13 +269,16 @@ export function useSpendStats(prefix: string) {
 }
 
 // ---- 收入对比 ----
-export function useIncomeCompare(month: string) {
-  return useQuery({ queryKey: ['incomeCompare', month], queryFn: () => incomeCompareService.compute(month) });
+export function useIncomeCompare(prefix: string) {
+  return useQuery({ queryKey: ['incomeCompare', prefix], queryFn: () => incomeCompareService.compute(prefix) });
 }
 
 // ---- 对账 ----
-export function useReconciliation() {
-  return useQuery({ queryKey: ['reconciliation'], queryFn: () => reconciliationService.compute() });
+export function useReconciliation(refMonth: string) {
+  return useQuery({
+    queryKey: ['reconciliation', refMonth],
+    queryFn: () => reconciliationService.compute(refMonth),
+  });
 }
 
 // ---- Comparison / Summary ----

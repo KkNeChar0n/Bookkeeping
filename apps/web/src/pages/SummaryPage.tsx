@@ -5,7 +5,7 @@ import {
   useIncomeCompare,
   useReconciliation,
   useSavingsSummary,
-  useSpendMonth,
+  useSpendPeriod,
   useSpendStats,
 } from '../api/hooks';
 import { currentMonthStr, fmtMoney, fmtSigned } from '../lib/format';
@@ -13,19 +13,20 @@ import type { SavingsSummaryRow } from '../services/savingsSummary.service';
 import type { SpendMonthView } from '../services/spend.service';
 
 export function SummaryPage() {
-  const month = currentMonthStr();
-  const spend = useSpendMonth(month);
-  const savingsSummary = useSavingsSummary();
-  const views = useCardViews();
-  const recon = useReconciliation();
   const navigate = useNavigate();
+  const [mode, setMode] = useState<'month' | 'year'>('month');
+  const [monthVal, setMonthVal] = useState(currentMonthStr());
+  const [yearVal, setYearVal] = useState(currentMonthStr().slice(0, 4));
 
-  const [statMode, setStatMode] = useState<'month' | 'year'>('month');
-  const [statMonth, setStatMonth] = useState(currentMonthStr());
-  const [statYear, setStatYear] = useState(currentMonthStr().slice(0, 4));
-  const prefix = statMode === 'month' ? statMonth : statYear;
+  const prefix = mode === 'month' ? monthVal : yearVal; // 'YYYY-MM' | 'YYYY'
+  const refMonth = mode === 'month' ? monthVal : `${yearVal}-12`;
+
+  const spend = useSpendPeriod(prefix);
   const stats = useSpendStats(prefix);
-  const incomeCmp = useIncomeCompare(month);
+  const incomeCmp = useIncomeCompare(prefix);
+  const recon = useReconciliation(refMonth);
+  const views = useCardViews();
+  const savingsSummary = useSavingsSummary();
 
   const spendRows = spend.data ?? [];
   const savings = savingsSummary.data ?? [];
@@ -36,7 +37,24 @@ export function SummaryPage() {
     <div>
       <h1 className="page-title">统计</h1>
 
-      <div className="section-title">消费 · 超支情况（{month}）</div>
+      {/* 统一按月/按年筛选 */}
+      <div className="card">
+        <div className="seg" style={{ marginBottom: 10 }}>
+          <button className={mode === 'month' ? 'active' : ''} onClick={() => setMode('month')}>
+            按月
+          </button>
+          <button className={mode === 'year' ? 'active' : ''} onClick={() => setMode('year')}>
+            按年
+          </button>
+        </div>
+        {mode === 'month' ? (
+          <input type="month" value={monthVal} onChange={(e) => setMonthVal(e.target.value)} />
+        ) : (
+          <input type="number" min="2000" max="2100" value={yearVal} onChange={(e) => setYearVal(e.target.value)} />
+        )}
+      </div>
+
+      <div className="section-title">消费 · 超支情况（{prefix}）</div>
       <div className="card">
         {spendRows.length ? (
           spendRows.map((v) => <SpendRow key={v.cardId} v={v} />)
@@ -45,28 +63,9 @@ export function SummaryPage() {
         )}
       </div>
 
-      <div className="section-title">消费 · 分类统计</div>
+      <div className="section-title">消费 · 分类统计（{prefix}）</div>
       <div className="card">
-        <div className="seg" style={{ marginBottom: 10 }}>
-          <button className={statMode === 'month' ? 'active' : ''} onClick={() => setStatMode('month')}>
-            按月
-          </button>
-          <button className={statMode === 'year' ? 'active' : ''} onClick={() => setStatMode('year')}>
-            按年
-          </button>
-        </div>
-        {statMode === 'month' ? (
-          <input type="month" value={statMonth} onChange={(e) => setStatMonth(e.target.value)} />
-        ) : (
-          <input
-            type="number"
-            min="2000"
-            max="2100"
-            value={statYear}
-            onChange={(e) => setStatYear(e.target.value)}
-          />
-        )}
-        <div className="kv mt">
+        <div className="kv">
           <span>合计消费</span>
           <b>{fmtMoney(stats.data?.total ?? '0')}</b>
         </div>
@@ -89,7 +88,7 @@ export function SummaryPage() {
         )}
       </div>
 
-      <div className="section-title">收入 · 实际与预期（{month}）</div>
+      <div className="section-title">收入 · 实际与预期（{prefix}）</div>
       <div className="card">
         {incomeCmp.data ? (
           <table>
@@ -117,7 +116,6 @@ export function SummaryPage() {
         ) : (
           <div className="muted">暂无数据</div>
         )}
-        <div className="muted mt">实际收入在「储蓄」页填月度金额时一并填写。</div>
       </div>
 
       <div className="section-title">储蓄 · 实际与预期差额</div>
@@ -148,8 +146,9 @@ export function SummaryPage() {
           <div className="muted">没有基金</div>
         )}
       </div>
-      {/* 对账块 */}
-      <div className="section-title">对账（总资产：储蓄 + 基金）</div>
+
+      {/* 对账：截至所选期末 */}
+      <div className="section-title">对账 · 总资产（截至 {refMonth}）</div>
       <div className="card">
         {r ? (
           <table>
@@ -175,13 +174,13 @@ export function SummaryPage() {
                 <td className={Number(r.fundProfit) >= 0 ? 'pos' : 'neg'}>{fmtSigned(r.fundProfit)}</td>
               </tr>
               <tr>
-                <td className="muted">· 消费超支</td>
+                <td className="muted">· 消费超支(累计)</td>
                 <td className={Number(r.overspend) > 0 ? 'neg' : ''}>
                   {Number(r.overspend) > 0 ? `−${fmtMoney(r.overspend)}` : '0.00'}
                 </td>
               </tr>
               <tr>
-                <td className="muted">· 收入差额</td>
+                <td className="muted">· 收入差额(累计)</td>
                 <td className={Number(r.incomeDiff) >= 0 ? 'pos' : 'neg'}>{fmtSigned(r.incomeDiff)}</td>
               </tr>
               <tr>
@@ -194,7 +193,7 @@ export function SummaryPage() {
           <div className="muted">暂无数据</div>
         )}
         {r && !r.savingsFilled && (
-          <div className="warn mt">部分储蓄卡当月还没填真实金额，总资产/差额暂不完整。</div>
+          <div className="warn mt">部分储蓄卡未填该期真实额，总资产/差额暂不完整。</div>
         )}
       </div>
     </div>
@@ -227,8 +226,7 @@ function SavingsRow({ v }: { v: SavingsSummaryRow }) {
       <div>
         <div>{v.cardName}</div>
         <div className="meta">
-          {v.month} · 实际 {v.actual !== null ? fmtMoney(v.actual) : '未填'} · 预期{' '}
-          {fmtMoney(v.expected)}
+          {v.month} · 实际 {v.actual !== null ? fmtMoney(v.actual) : '未填'} · 预期 {fmtMoney(v.expected)}
         </div>
       </div>
       {diff !== null ? (

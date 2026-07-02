@@ -1,8 +1,9 @@
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useSpendMonth, useTransactions } from '../api/hooks';
 import { CreateCardForm } from '../components/CreateCardForm';
 import { addDays, fmtDateCN, fmtMoney, todayStr } from '../lib/format';
+import { useCardSlide } from '../lib/useCardSlide';
 import type { SpendMonthView } from '../services/spend.service';
 
 export function DailyPage() {
@@ -12,42 +13,10 @@ export function DailyPage() {
   const navigate = useNavigate();
   const [showCreate, setShowCreate] = useState(false);
 
-  const dateRef = useRef<HTMLInputElement>(null);
-  const openPicker = () => {
-    const el = dateRef.current;
-    if (!el) return;
-    try {
-      if (typeof el.showPicker === 'function') el.showPicker();
-      else el.focus();
-    } catch {
-      el.focus();
-    }
-  };
-
-  // 在卡片区左右滑动切换日期（区分滑动/点击，点击仍进详情）
-  const swipeStart = useRef<{ x: number; y: number } | null>(null);
-  const swiped = useRef(false);
-  const shift = (d: number) => setDate((cur) => addDays(cur, d));
-  const onDown = (e: React.PointerEvent) => {
-    swipeStart.current = { x: e.clientX, y: e.clientY };
-    swiped.current = false;
-  };
-  const onUp = (e: React.PointerEvent) => {
-    if (!swipeStart.current) return;
-    const dx = e.clientX - swipeStart.current.x;
-    const dy = e.clientY - swipeStart.current.y;
-    swipeStart.current = null;
-    if (Math.abs(dx) > 45 && Math.abs(dx) > Math.abs(dy)) {
-      swiped.current = true;
-      shift(dx < 0 ? 1 : -1);
-    }
-  };
-  const onClickCapture = (e: React.MouseEvent) => {
-    if (swiped.current) {
-      e.stopPropagation();
-      swiped.current = false;
-    }
-  };
+  // 整片左右滑动切日期（区分滑动/点击）
+  const { drag, instant, handlers, onClickCapture } = useCardSlide((dir) =>
+    setDate((cur) => addDays(cur, dir)),
+  );
 
   return (
     <div>
@@ -65,38 +34,49 @@ export function DailyPage() {
       </div>
 
       <div className="date-header" style={{ justifyContent: 'center', position: 'relative' }}>
-        <button className="date-text" onClick={openPicker}>
-          {fmtDateCN(date)}
-        </button>
+        <span className="date-text">{fmtDateCN(date)}</span>
+        {/* 透明日期输入盖在上面，点击直接唤起系统年月日选择器 */}
         <input
-          ref={dateRef}
           type="date"
+          aria-label="选择日期"
           value={date}
           onChange={(e) => e.target.value && setDate(e.target.value)}
-          style={{ position: 'absolute', left: '50%', bottom: 0, width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
+          style={{
+            position: 'absolute',
+            inset: 0,
+            width: '100%',
+            height: '100%',
+            opacity: 0,
+            cursor: 'pointer',
+          }}
         />
       </div>
       <div className="muted date-hint">点日期可选年月日 · 在卡片上左右滑动切换日期</div>
 
-      <div className="day-swipe" onPointerDown={onDown} onPointerUp={onUp} onClickCapture={onClickCapture}>
-        {views.data?.length ? (
-          <div className="stack">
-            {views.data.map((v) => (
-              <SpendCard key={v.cardId} v={v} date={date} />
-            ))}
-          </div>
-        ) : (
-          <div className="card muted">还没有消费卡，点下方「新建消费卡」。</div>
-        )}
-
-        <div className="spacer" />
-        <button onClick={() => setShowCreate((s) => !s)}>{showCreate ? '收起' : '＋ 新建消费卡'}</button>
-        {showCreate && (
-          <div className="mt">
-            <CreateCardForm type="SPEND" placeholder="如：日常消费" />
-          </div>
-        )}
+      <div className="day-swipe" {...handlers} onClickCapture={onClickCapture}>
+        <div
+          className="day-slide"
+          style={{ transform: `translateX(${drag}px)`, transition: instant ? 'none' : undefined }}
+        >
+          {views.data?.length ? (
+            <div className="stack">
+              {views.data.map((v) => (
+                <SpendCard key={v.cardId} v={v} date={date} />
+              ))}
+            </div>
+          ) : (
+            <div className="card muted">还没有消费卡，点下方「新建消费卡」。</div>
+          )}
+        </div>
       </div>
+
+      <div className="spacer" />
+      <button onClick={() => setShowCreate((s) => !s)}>{showCreate ? '收起' : '＋ 新建消费卡'}</button>
+      {showCreate && (
+        <div className="mt">
+          <CreateCardForm type="SPEND" placeholder="如：日常消费" />
+        </div>
+      )}
     </div>
   );
 }
