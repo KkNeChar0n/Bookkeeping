@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useCards, useSavingsList } from '../api/hooks';
-import { CreateCardForm } from '../components/CreateCardForm';
 import { fmtMoney, fmtSigned } from '../lib/format';
 import type { Card } from '../api/types';
 
@@ -9,7 +8,6 @@ export function SavingsPage() {
   const cards = useCards();
   const savings = (cards.data ?? []).filter((c) => c.type === 'SAVINGS');
   const [openId, setOpenId] = useState<string | null>(null);
-  const [showCreate, setShowCreate] = useState(false);
 
   useEffect(() => {
     if (savings.length && !savings.find((c) => c.id === openId)) setOpenId(savings[0].id);
@@ -34,15 +32,7 @@ export function SavingsPage() {
           ))}
         </div>
       ) : (
-        <div className="card muted">还没有储蓄卡。</div>
-      )}
-
-      <div className="spacer" />
-      <button onClick={() => setShowCreate((s) => !s)}>{showCreate ? '收起' : '＋ 新建储蓄卡'}</button>
-      {showCreate && (
-        <div className="mt">
-          <CreateCardForm type="SAVINGS" placeholder="如：工资卡" />
-        </div>
+        <div className="card muted">还没有储蓄卡，去「记账」页右上角 ⚙️ 设置里新建。</div>
       )}
     </div>
   );

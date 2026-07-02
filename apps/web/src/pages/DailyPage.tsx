@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useSpendMonth, useTransactions } from '../api/hooks';
-import { CreateCardForm } from '../components/CreateCardForm';
 import { addDays, fmtDateCN, fmtMoney, todayStr } from '../lib/format';
 import { useCardSlide } from '../lib/useCardSlide';
 import type { SpendMonthView } from '../services/spend.service';
@@ -11,7 +10,6 @@ export function DailyPage() {
   const month = date.slice(0, 7);
   const views = useSpendMonth(month);
   const navigate = useNavigate();
-  const [showCreate, setShowCreate] = useState(false);
 
   // 整片左右滑动切日期（区分滑动/点击）
   const { drag, instant, handlers, onClickCapture } = useCardSlide((dir) =>
@@ -59,24 +57,16 @@ export function DailyPage() {
           style={{ transform: `translateX(${drag}px)`, transition: instant ? 'none' : undefined }}
         >
           {views.data?.length ? (
-            <div className="stack">
+            <div className="stack day-stack">
               {views.data.map((v) => (
                 <SpendCard key={v.cardId} v={v} date={date} />
               ))}
             </div>
           ) : (
-            <div className="card muted">还没有消费卡，点下方「新建消费卡」。</div>
+            <div className="card muted">还没有消费卡，去右上角 ⚙️ 设置里新建。</div>
           )}
         </div>
       </div>
-
-      <div className="spacer" />
-      <button onClick={() => setShowCreate((s) => !s)}>{showCreate ? '收起' : '＋ 新建消费卡'}</button>
-      {showCreate && (
-        <div className="mt">
-          <CreateCardForm type="SPEND" placeholder="如：日常消费" />
-        </div>
-      )}
     </div>
   );
 }

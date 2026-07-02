@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAddCategory, useCategoryList, useRemoveCategory, useRenameCategory } from '../api/hooks';
 import { BackupPanel } from '../components/BackupPanel';
+import { CreateCardForm } from '../components/CreateCardForm';
 
 export function SettingsPage() {
   const navigate = useNavigate();
@@ -21,6 +22,12 @@ export function SettingsPage() {
         </div>
         <span style={{ width: 40 }} />
       </div>
+
+      <div className="section-title">新建储蓄卡</div>
+      <CreateCardForm type="SAVINGS" placeholder="如：工资卡" />
+
+      <div className="section-title">新建消费卡</div>
+      <CreateCardForm type="SPEND" placeholder="如：日常消费" />
 
       <KindSection kind="income" title="收入类型" rows={income} />
       <KindSection kind="expense" title="支出类型" rows={expense} />
