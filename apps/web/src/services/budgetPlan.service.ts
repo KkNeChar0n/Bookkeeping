@@ -164,8 +164,8 @@ export const budgetPlanService = {
   },
 
   /**
-   * 各储蓄卡「截至某月」用于统计的预期余额：只含 收入 − 调出，
-   * **不含支出**（支出不参与储蓄-预算的差额计算）。
+   * 各储蓄卡「截至某月」的预期余额（统计/对账用），与预算页显示的口径一致：
+   * 期初 + Σ(收入 + 调入 − 调出 − 支出)。支出会扣减（参与储蓄-预算）。
    */
   async expectedBalance(cardId: string, month: string): Promise<Cents> {
     const [rows, initial] = await Promise.all([
@@ -174,8 +174,8 @@ export const budgetPlanService = {
     ]);
     let bal = initial;
     for (const r of rows) {
-      if (r.month > month || r.kind === 'EXPENSE') continue; // 排除支出
-      bal += sign(r.kind) * r.amount; // 收入/调入 +，调出 −
+      if (r.month > month) continue;
+      bal += sign(r.kind) * r.amount; // 收入/调入 +，调出/支出 −
     }
     return bal;
   },
