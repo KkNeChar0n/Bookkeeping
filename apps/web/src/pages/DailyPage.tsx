@@ -1,9 +1,10 @@
 import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useSpendMonth } from '../api/hooks';
+import { useSpendMonth, useTransactions } from '../api/hooks';
 import { BackupPanel } from '../components/BackupPanel';
 import { CreateCardForm } from '../components/CreateCardForm';
 import { addDays, fmtDateCN, fmtMoney, todayStr } from '../lib/format';
+import type { SpendMonthView } from '../services/spend.service';
 
 export function DailyPage() {
   const [date, setDate] = useState(todayStr());
@@ -55,40 +56,7 @@ export function DailyPage() {
 
       <div className="stack">
         {views.data?.length ? (
-          views.data.map((v) => {
-            const remaining = Number(v.remaining);
-            return (
-              <div
-                key={v.cardId}
-                className={`stack-item${v.overspent ? ' over' : ''}`}
-                onClick={() => navigate(`/card/${v.cardId}`)}
-              >
-                <div className="stack-head">
-                  <div className="stack-name">
-                    <span>{v.cardName}</span>
-                    <span className="type-tag">消费卡</span>
-                  </div>
-                  <span style={{ color: 'var(--primary)' }}>›</span>
-                </div>
-                <div className="card-detail">
-                  <div className="kv">
-                    <span>额度</span>
-                    <span>{v.hasQuota ? fmtMoney(v.quota) : '未设'}</span>
-                  </div>
-                  <div className="kv">
-                    <span>已消费</span>
-                    <b>{fmtMoney(v.spent)}</b>
-                  </div>
-                  <div className="kv">
-                    <span>{v.overspent ? '超支' : '剩余'}</span>
-                    <b className={v.overspent ? 'neg' : 'pos'}>
-                      {v.overspent ? fmtMoney(Math.abs(remaining)) : fmtMoney(v.remaining)}
-                    </b>
-                  </div>
-                </div>
-              </div>
-            );
-          })
+          views.data.map((v) => <SpendCard key={v.cardId} v={v} date={date} />)
         ) : (
           <div className="card muted">还没有消费卡，点下方「新建消费卡」。</div>
         )}
@@ -104,6 +72,60 @@ export function DailyPage() {
 
       <div className="spacer" />
       <BackupPanel />
+    </div>
+  );
+}
+
+function SpendCard({ v, date }: { v: SpendMonthView; date: string }) {
+  const navigate = useNavigate();
+  const txs = useTransactions({ cardId: v.cardId, from: date, to: date });
+  const rows = txs.data ?? [];
+  const remaining = Number(v.remaining);
+
+  return (
+    <div
+      className={`stack-item${v.overspent ? ' over' : ''}`}
+      onClick={() => navigate(`/card/${v.cardId}`)}
+    >
+      <div className="stack-head">
+        <div className="stack-name">
+          <span>{v.cardName}</span>
+          <span className="type-tag">消费卡</span>
+        </div>
+        <span style={{ color: 'var(--primary)' }}>›</span>
+      </div>
+      <div className="card-detail">
+        <div className="kv">
+          <span>额度</span>
+          <span>{v.hasQuota ? fmtMoney(v.quota) : '未设'}</span>
+        </div>
+        <div className="kv">
+          <span>本月已消费</span>
+          <b>{fmtMoney(v.spent)}</b>
+        </div>
+        <div className="kv">
+          <span>{v.overspent ? '超支' : '剩余'}</span>
+          <b className={v.overspent ? 'neg' : 'pos'}>
+            {v.overspent ? fmtMoney(Math.abs(remaining)) : fmtMoney(v.remaining)}
+          </b>
+        </div>
+      </div>
+
+      <div className="divider" />
+      <div className="detail-sub">当日流水（{date}）</div>
+      {rows.length ? (
+        rows.map((t) => (
+          <div className="tx" key={t.id}>
+            <div>支出{t.category ? ` · ${t.category}` : ''}</div>
+            <div className="row-between">
+              <span className="amt out">{fmtMoney(t.amount)}</span>
+              {t.note ? <span className="meta ml">{t.note}</span> : null}
+            </div>
+          </div>
+        ))
+      ) : (
+        <div className="muted">当日无消费</div>
+      )}
     </div>
   );
 }
