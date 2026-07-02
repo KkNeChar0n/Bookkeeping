@@ -4,6 +4,7 @@ import { DailyPage } from './pages/DailyPage';
 import { CardDetailPage } from './pages/CardDetailPage';
 import { BudgetPage } from './pages/BudgetPage';
 import { BudgetCardPage } from './pages/BudgetCardPage';
+import { BudgetEditPage } from './pages/BudgetEditPage';
 import { SavingsPage } from './pages/SavingsPage';
 import { SavingsCardPage } from './pages/SavingsCardPage';
 import { FundPage } from './pages/FundPage';
@@ -19,6 +20,7 @@ export function App() {
           <Route path="/card/:id" element={<CardDetailPage />} />
           <Route path="/budget" element={<BudgetPage />} />
           <Route path="/budget/:id" element={<BudgetCardPage />} />
+          <Route path="/budget/:id/edit" element={<BudgetEditPage />} />
           <Route path="/savings" element={<SavingsPage />} />
           <Route path="/savings/:id" element={<SavingsCardPage />} />
           <Route path="/fund" element={<FundPage />} />

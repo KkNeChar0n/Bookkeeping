@@ -1,19 +1,12 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import {
-  useAddBudgetDetail,
-  useBudgetMonths,
-  useCards,
-  useCategories,
-  useDeleteBudgetDetail,
-  useUpdateCard,
-} from '../api/hooks';
-import { currentMonthStr, fmtMoney } from '../lib/format';
+import { useBudgetCurrentMonth, useCards, useUpdateCard } from '../api/hooks';
+import { addMonths, currentMonthStr, fmtMoney } from '../lib/format';
 
 const KIND_LABEL: Record<'IN' | 'OUT' | 'EXPENSE', string> = {
-  IN: '计划收入',
-  OUT: '计划调出',
-  EXPENSE: '计划支出',
+  IN: '收入',
+  OUT: '调出',
+  EXPENSE: '支出',
 };
 
 export function BudgetCardPage() {
@@ -23,34 +16,40 @@ export function BudgetCardPage() {
   const card = cards.data?.find((c) => c.id === id);
   const update = useUpdateCard();
 
+  const [month, setMonth] = useState(currentMonthStr());
+  const view = useBudgetCurrentMonth(id, month);
+  const v = view.data;
+
+  const start = useRef<{ x: number; y: number } | null>(null);
+  const [drag, setDrag] = useState(0);
+
   const editInitial = () => {
-    const v = window.prompt('期初金额（预期余额的起点）', card?.initialBalance ?? '0');
-    if (v !== null && v.trim() !== '') update.mutate({ id, initialBalance: v.trim() });
+    const val = window.prompt('期初金额（预期余额的起点）', card?.initialBalance ?? '0');
+    if (val !== null && val.trim() !== '') update.mutate({ id, initialBalance: val.trim() });
   };
 
-  const [month, setMonth] = useState(currentMonthStr());
-  const monthsQ = useBudgetMonths(id, [month]);
-  const months = monthsQ.data ?? [];
-  const cur = months.find((m) => m.month === month);
-
-  const addDetail = useAddBudgetDetail();
-  const delDetail = useDeleteBudgetDetail();
-  const categories = useCategories();
-  const [label, setLabel] = useState('');
-  const [category, setCategory] = useState('');
-  const [kind, setKind] = useState<'IN' | 'OUT' | 'EXPENSE'>('IN');
-  const [amount, setAmount] = useState('');
-
-  // 收入→收入类型；支出→支出类型；调出无类型
-  const catList =
-    kind === 'IN' ? (categories.data?.income ?? []) : kind === 'EXPENSE' ? (categories.data?.expense ?? []) : [];
-
-  const submit = async () => {
-    if (!amount || Number(amount) <= 0) return;
-    await addDetail.mutateAsync({ cardId: id, month, label, category: category || undefined, kind, amount });
-    setLabel('');
-    setCategory('');
-    setAmount('');
+  const onDown = (e: React.PointerEvent) => {
+    start.current = { x: e.clientX, y: e.clientY };
+  };
+  const onMove = (e: React.PointerEvent) => {
+    if (!start.current) return;
+    const dx = e.clientX - start.current.x;
+    const dy = e.clientY - start.current.y;
+    if (Math.abs(dx) > Math.abs(dy)) setDrag(Math.max(-100, Math.min(100, dx)));
+  };
+  const onUp = (e: React.PointerEvent) => {
+    if (!start.current) return;
+    const dx = e.clientX - start.current.x;
+    const dy = e.clientY - start.current.y;
+    start.current = null;
+    setDrag(0);
+    if (Math.abs(dy) > Math.abs(dx) && dy < -60) {
+      navigate(`/budget/${id}/edit?month=${month}`); // 上滑 → 收支调整
+    } else if (dx > 50) {
+      setMonth((m) => addMonths(m, -1)); // 右滑 → 上一月
+    } else if (dx < -50) {
+      setMonth((m) => addMonths(m, 1)); // 左滑 → 下一月
+    }
   };
 
   return (
@@ -70,22 +69,33 @@ export function BudgetCardPage() {
         </div>
       </div>
 
-      {/* 月份选择 + 期初 */}
-      <div className="card">
-        <div className="field" style={{ margin: 0 }}>
-          <label>月份</label>
-          <input type="month" value={month} onChange={(e) => setMonth(e.target.value)} />
+      <div
+        className="swipe-card"
+        style={{ transform: `translateX(${drag}px)` }}
+        onPointerDown={onDown}
+        onPointerMove={onMove}
+        onPointerUp={onUp}
+        onPointerLeave={onUp}
+      >
+        <div className="row-between" style={{ marginBottom: 6 }}>
+          <button className="ghost" onPointerDown={(e) => e.stopPropagation()} onClick={() => setMonth((m) => addMonths(m, -1))}>
+            ‹
+          </button>
+          <strong style={{ fontSize: 18 }}>{month}</strong>
+          <button className="ghost" onPointerDown={(e) => e.stopPropagation()} onClick={() => setMonth((m) => addMonths(m, 1))}>
+            ›
+          </button>
         </div>
-        <div className="muted mt">期初金额 {card ? fmtMoney(card.initialBalance) : '—'}（点右上「期初调整」修改）</div>
-      </div>
+        <div className="swipe-balance">
+          <span className="muted">预期余额</span>
+          <div className="big">{v ? fmtMoney(v.expected) : '—'}</div>
+          <div className="muted">期初 {card ? fmtMoney(card.initialBalance) : '—'}</div>
+        </div>
 
-      {/* 该月编辑 */}
-      <div className="section-title">
-        {month} · 预期余额 {cur ? fmtMoney(cur.expected) : '—'}
-      </div>
-      <div className="card">
-        {cur && cur.details.length ? (
-          cur.details.map((d) => (
+        <div className="divider" />
+        <div className="detail-sub">本月预算明细</div>
+        {v && v.details.length ? (
+          v.details.map((d) => (
             <div className="tx" key={d.id}>
               <div>
                 <div>{d.label}</div>
@@ -94,103 +104,20 @@ export function BudgetCardPage() {
                   {d.category && d.category !== d.label ? ` · ${d.category}` : ''}
                 </div>
               </div>
-              <div className="row-between">
-                <span className={`amt ${d.kind === 'IN' ? 'in' : 'out'}`}>
-                  {d.kind === 'IN' ? '+' : '−'}
-                  {fmtMoney(d.amount)}
-                </span>
-                <button className="ghost" onClick={() => delDetail.mutate(d.id)}>
-                  ✕
-                </button>
-              </div>
+              <span className={`amt ${d.kind === 'IN' ? 'in' : 'out'}`}>
+                {d.kind === 'IN' ? '+' : '−'}
+                {fmtMoney(d.amount)}
+              </span>
             </div>
           ))
         ) : (
-          <div className="muted">本月还没有预算细节</div>
+          <div className="muted">本月还没有预算明细</div>
         )}
 
-        <div className="mt">
-          <div className="seg" style={{ marginBottom: 8 }}>
-            <button
-              className={kind === 'IN' ? 'active' : ''}
-              onClick={() => {
-                setKind('IN');
-                setCategory('');
-              }}
-            >
-              收入
-            </button>
-            <button
-              className={kind === 'OUT' ? 'active' : ''}
-              onClick={() => {
-                setKind('OUT');
-                setCategory('');
-              }}
-            >
-              调出
-            </button>
-            <button
-              className={kind === 'EXPENSE' ? 'active' : ''}
-              onClick={() => {
-                setKind('EXPENSE');
-                setCategory('');
-              }}
-            >
-              支出
-            </button>
-          </div>
-          {catList.length > 0 && (
-            <div className="chips" style={{ marginBottom: 8 }}>
-              {catList.map((c) => (
-                <button
-                  key={c}
-                  className={`chip${category === c ? ' active' : ''}`}
-                  onClick={() => setCategory(c)}
-                >
-                  {c}
-                </button>
-              ))}
-            </div>
-          )}
-          <input
-            placeholder="备注（可选）"
-            value={label}
-            onChange={(e) => setLabel(e.target.value)}
-            style={{ marginBottom: 8 }}
-          />
-          <div className="row-between" style={{ gap: 8 }}>
-            <input type="number" step="0.01" placeholder="金额" value={amount} onChange={(e) => setAmount(e.target.value)} />
-            <button
-              className="primary"
-              style={{ width: 'auto', padding: '11px 18px', whiteSpace: 'nowrap' }}
-              onClick={submit}
-              disabled={!amount}
-            >
-              添加
-            </button>
-          </div>
+        <div className="swipe-hint" style={{ marginTop: 14 }}>
+          ‹ 右滑上一月 · 左滑下一月 › · 上滑 ↑ 记收支
         </div>
       </div>
-
-      {/* 历史（点选切换月份） */}
-      {months.length > 0 && (
-        <>
-          <div className="section-title">各月预期</div>
-          <div className="card">
-            {[...months].reverse().map((m) => (
-              <div
-                className={`tx${m.month === month ? ' picked' : ''}`}
-                key={m.month}
-                onClick={() => setMonth(m.month)}
-                style={{ cursor: 'pointer' }}
-              >
-                <div>{m.month}</div>
-                <span className="amt neutral">{fmtMoney(m.expected)}</span>
-              </div>
-            ))}
-          </div>
-        </>
-      )}
     </div>
   );
 }

@@ -32,6 +32,15 @@ export function fmtDateCN(dateStr: string): string {
   return `${String(y).slice(2)}年 ${m}月 ${d}日`;
 }
 
+/** 月份加减，返回 'YYYY-MM' */
+export function addMonths(monthStr: string, delta: number): string {
+  const [y, m] = monthStr.split('-').map(Number);
+  const idx = (y * 12 + (m - 1)) + delta;
+  const ny = Math.floor(idx / 12);
+  const nm = (idx % 12) + 1;
+  return `${ny}-${String(nm).padStart(2, '0')}`;
+}
+
 /** 日期加减天数，返回 'YYYY-MM-DD' */
 export function addDays(dateStr: string, delta: number): string {
   const [y, m, d] = dateStr.split('-').map(Number);
