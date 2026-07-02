@@ -37,9 +37,9 @@ export function SummaryPage() {
     <div>
       <h1 className="page-title">统计</h1>
 
-      {/* 统一按月/按年筛选 */}
+      {/* 受同一日期控制的区块，集中在一张大卡里 */}
       <div className="card">
-        <div className="seg" style={{ marginBottom: 10 }}>
+        <div className="seg" style={{ marginBottom: 6 }}>
           <button className={mode === 'month' ? 'active' : ''} onClick={() => setMode('month')}>
             按月
           </button>
@@ -52,19 +52,17 @@ export function SummaryPage() {
         ) : (
           <input type="number" min="2000" max="2100" value={yearVal} onChange={(e) => setYearVal(e.target.value)} />
         )}
-      </div>
 
-      <div className="section-title">消费 · 超支情况（{prefix}）</div>
-      <div className="card">
+        <div className="divider" />
+        <div className="detail-sub">消费 · 超支情况</div>
         {spendRows.length ? (
           spendRows.map((v) => <SpendRow key={v.cardId} v={v} />)
         ) : (
           <div className="muted">没有消费卡</div>
         )}
-      </div>
 
-      <div className="section-title">消费 · 分类统计（{prefix}）</div>
-      <div className="card">
+        <div className="divider" />
+        <div className="detail-sub">消费 · 分类统计</div>
         <div className="kv">
           <span>合计消费</span>
           <b>{fmtMoney(stats.data?.total ?? '0')}</b>
@@ -86,33 +84,68 @@ export function SummaryPage() {
         ) : (
           <div className="muted mt">该期间没有消费</div>
         )}
-      </div>
 
-      <div className="section-title">收入 · 实际与预期（{prefix}）</div>
-      <div className="card">
-        {incomeCmp.data ? (
-          <table>
-            <tbody>
-              <tr>
-                <td>预期收入</td>
-                <td>{fmtMoney(incomeCmp.data.expected)}</td>
-              </tr>
-              <tr>
-                <td>实际收入</td>
-                <td>{fmtMoney(incomeCmp.data.actual)}</td>
-              </tr>
-              <tr>
-                <td>
-                  <strong>差额（实际−预期）</strong>
-                </td>
-                <td>
-                  <strong className={Number(incomeCmp.data.diff) >= 0 ? 'pos' : 'neg'}>
-                    {fmtSigned(incomeCmp.data.diff)}
-                  </strong>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+        <div className="divider" />
+        <div className="detail-sub">收入 · 实际与预期</div>
+        {incomeCmp.data && (
+          <>
+            <div className="kv">
+              <span>预期收入</span>
+              <span>{fmtMoney(incomeCmp.data.expected)}</span>
+            </div>
+            <div className="kv">
+              <span>实际收入</span>
+              <span>{fmtMoney(incomeCmp.data.actual)}</span>
+            </div>
+            <div className="kv">
+              <span>
+                <strong>差额</strong>
+              </span>
+              <b className={Number(incomeCmp.data.diff) >= 0 ? 'pos' : 'neg'}>{fmtSigned(incomeCmp.data.diff)}</b>
+            </div>
+          </>
+        )}
+
+        <div className="divider" />
+        <div className="detail-sub">对账 · 总资产（截至 {refMonth}）</div>
+        {r ? (
+          <>
+            <div className="kv">
+              <span>预算总资产</span>
+              <span>{fmtMoney(r.budgetTotal)}</span>
+            </div>
+            <div className="kv">
+              <span>实际总资产</span>
+              <span>{fmtMoney(r.actualTotal)}</span>
+            </div>
+            <div className="kv">
+              <span>
+                <strong>差额（实际−预算）</strong>
+              </span>
+              <b className={Number(r.diff) >= 0 ? 'pos' : 'neg'}>{fmtSigned(r.diff)}</b>
+            </div>
+            <div className="kv">
+              <span className="muted">· 基金盈亏</span>
+              <span className={Number(r.fundProfit) >= 0 ? 'pos' : 'neg'}>{fmtSigned(r.fundProfit)}</span>
+            </div>
+            <div className="kv">
+              <span className="muted">· 消费超支(累计)</span>
+              <span className={Number(r.overspend) > 0 ? 'neg' : ''}>
+                {Number(r.overspend) > 0 ? `−${fmtMoney(r.overspend)}` : '0.00'}
+              </span>
+            </div>
+            <div className="kv">
+              <span className="muted">· 收入差额(累计)</span>
+              <span className={Number(r.incomeDiff) >= 0 ? 'pos' : 'neg'}>{fmtSigned(r.incomeDiff)}</span>
+            </div>
+            <div className="kv">
+              <span className="muted">· 利息/其他</span>
+              <span className={Number(r.interest) >= 0 ? 'pos' : 'neg'}>{fmtSigned(r.interest)}</span>
+            </div>
+            {!r.savingsFilled && (
+              <div className="warn mt">部分储蓄卡未填该期真实额，总资产/差额暂不完整。</div>
+            )}
+          </>
         ) : (
           <div className="muted">暂无数据</div>
         )}
@@ -144,56 +177,6 @@ export function SummaryPage() {
           ))
         ) : (
           <div className="muted">没有基金</div>
-        )}
-      </div>
-
-      {/* 对账：截至所选期末 */}
-      <div className="section-title">对账 · 总资产（截至 {refMonth}）</div>
-      <div className="card">
-        {r ? (
-          <table>
-            <tbody>
-              <tr>
-                <td>预算总资产</td>
-                <td>{fmtMoney(r.budgetTotal)}</td>
-              </tr>
-              <tr>
-                <td>实际总资产</td>
-                <td>{fmtMoney(r.actualTotal)}</td>
-              </tr>
-              <tr>
-                <td>
-                  <strong>差额（实际−预算）</strong>
-                </td>
-                <td>
-                  <strong className={Number(r.diff) >= 0 ? 'pos' : 'neg'}>{fmtSigned(r.diff)}</strong>
-                </td>
-              </tr>
-              <tr>
-                <td className="muted">· 基金盈亏</td>
-                <td className={Number(r.fundProfit) >= 0 ? 'pos' : 'neg'}>{fmtSigned(r.fundProfit)}</td>
-              </tr>
-              <tr>
-                <td className="muted">· 消费超支(累计)</td>
-                <td className={Number(r.overspend) > 0 ? 'neg' : ''}>
-                  {Number(r.overspend) > 0 ? `−${fmtMoney(r.overspend)}` : '0.00'}
-                </td>
-              </tr>
-              <tr>
-                <td className="muted">· 收入差额(累计)</td>
-                <td className={Number(r.incomeDiff) >= 0 ? 'pos' : 'neg'}>{fmtSigned(r.incomeDiff)}</td>
-              </tr>
-              <tr>
-                <td className="muted">· 利息/其他</td>
-                <td className={Number(r.interest) >= 0 ? 'pos' : 'neg'}>{fmtSigned(r.interest)}</td>
-              </tr>
-            </tbody>
-          </table>
-        ) : (
-          <div className="muted">暂无数据</div>
-        )}
-        {r && !r.savingsFilled && (
-          <div className="warn mt">部分储蓄卡未填该期真实额，总资产/差额暂不完整。</div>
         )}
       </div>
     </div>
