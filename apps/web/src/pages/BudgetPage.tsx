@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useBudgetCurrentMonth, useCards } from '../api/hooks';
+import { useBudgetCurrentMonth, useCards, useUpdateCard } from '../api/hooks';
 import { currentMonthStr, fmtMoney } from '../lib/format';
 import type { Card } from '../api/types';
 
@@ -42,7 +42,13 @@ function BudgetRow({ card, open, onToggle }: { card: Card; open: boolean; onTogg
   const month = currentMonthStr();
   const view = useBudgetCurrentMonth(card.id, month);
   const navigate = useNavigate();
+  const update = useUpdateCard();
   const v = view.data;
+
+  const editInitial = () => {
+    const val = window.prompt('期初金额（预期余额的起点）', card.initialBalance);
+    if (val !== null && val.trim() !== '') update.mutate({ id: card.id, initialBalance: val.trim() });
+  };
 
   return (
     <div className={`stack-item${open ? ' open' : ''}`}>
@@ -63,6 +69,10 @@ function BudgetRow({ card, open, onToggle }: { card: Card; open: boolean; onTogg
             <span>本月（{month}）预期余额</span>
             <b>{v ? fmtMoney(v.expected) : '—'}</b>
           </div>
+          <div className="kv">
+            <span className="muted">期初金额</span>
+            <span>{fmtMoney(card.initialBalance)}</span>
+          </div>
           {v && v.details.length ? (
             v.details.map((d) => (
               <div className="kv" key={d.id}>
@@ -78,9 +88,14 @@ function BudgetRow({ card, open, onToggle }: { card: Card; open: boolean; onTogg
           ) : (
             <div className="muted">本月还没有预算细节</div>
           )}
-          <button className="mini mt" onClick={() => navigate(`/budget/${card.id}`)}>
-            收支
-          </button>
+          <div className="card-row-actions">
+            <button className="mini" onClick={() => navigate(`/budget/${card.id}`)}>
+              收支
+            </button>
+            <button className="mini" onClick={editInitial}>
+              期初调整
+            </button>
+          </div>
         </div>
       )}
     </div>
