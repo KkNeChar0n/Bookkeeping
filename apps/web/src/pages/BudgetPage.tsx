@@ -16,8 +16,11 @@ export function BudgetPage() {
   return (
     <div>
       <h1 className="page-title">预算</h1>
-      <div className="muted date-hint" style={{ textAlign: 'left', marginBottom: 12 }}>
+      <div className="muted date-hint" style={{ textAlign: 'left', marginBottom: 4 }}>
         点开看本月预算，再点一次进入详情（左右滑切月、记收支）。
+      </div>
+      <div className="muted date-hint" style={{ textAlign: 'left', marginBottom: 12, fontSize: 12 }}>
+        预算为每月最后一天的存储金额
       </div>
 
       {savings.length ? (
