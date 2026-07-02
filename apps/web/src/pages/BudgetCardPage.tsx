@@ -4,6 +4,7 @@ import {
   useAddBudgetDetail,
   useBudgetMonths,
   useCards,
+  useCategories,
   useDeleteBudgetDetail,
   useUpdateCard,
 } from '../api/hooks';
@@ -34,14 +35,21 @@ export function BudgetCardPage() {
 
   const addDetail = useAddBudgetDetail();
   const delDetail = useDeleteBudgetDetail();
+  const categories = useCategories();
   const [label, setLabel] = useState('');
+  const [category, setCategory] = useState('');
   const [kind, setKind] = useState<'IN' | 'OUT' | 'EXPENSE'>('IN');
   const [amount, setAmount] = useState('');
 
+  // 收入→收入类型；支出→支出类型；调出无类型
+  const catList =
+    kind === 'IN' ? (categories.data?.income ?? []) : kind === 'EXPENSE' ? (categories.data?.expense ?? []) : [];
+
   const submit = async () => {
     if (!amount || Number(amount) <= 0) return;
-    await addDetail.mutateAsync({ cardId: id, month, label, kind, amount });
+    await addDetail.mutateAsync({ cardId: id, month, label, category: category || undefined, kind, amount });
     setLabel('');
+    setCategory('');
     setAmount('');
   };
 
@@ -81,7 +89,10 @@ export function BudgetCardPage() {
             <div className="tx" key={d.id}>
               <div>
                 <div>{d.label}</div>
-                <div className="meta">{KIND_LABEL[d.kind]}</div>
+                <div className="meta">
+                  {KIND_LABEL[d.kind]}
+                  {d.category && d.category !== d.label ? ` · ${d.category}` : ''}
+                </div>
               </div>
               <div className="row-between">
                 <span className={`amt ${d.kind === 'IN' ? 'in' : 'out'}`}>
@@ -100,18 +111,49 @@ export function BudgetCardPage() {
 
         <div className="mt">
           <div className="seg" style={{ marginBottom: 8 }}>
-            <button className={kind === 'IN' ? 'active' : ''} onClick={() => setKind('IN')}>
+            <button
+              className={kind === 'IN' ? 'active' : ''}
+              onClick={() => {
+                setKind('IN');
+                setCategory('');
+              }}
+            >
               收入
             </button>
-            <button className={kind === 'OUT' ? 'active' : ''} onClick={() => setKind('OUT')}>
+            <button
+              className={kind === 'OUT' ? 'active' : ''}
+              onClick={() => {
+                setKind('OUT');
+                setCategory('');
+              }}
+            >
               调出
             </button>
-            <button className={kind === 'EXPENSE' ? 'active' : ''} onClick={() => setKind('EXPENSE')}>
+            <button
+              className={kind === 'EXPENSE' ? 'active' : ''}
+              onClick={() => {
+                setKind('EXPENSE');
+                setCategory('');
+              }}
+            >
               支出
             </button>
           </div>
+          {catList.length > 0 && (
+            <div className="chips" style={{ marginBottom: 8 }}>
+              {catList.map((c) => (
+                <button
+                  key={c}
+                  className={`chip${category === c ? ' active' : ''}`}
+                  onClick={() => setCategory(c)}
+                >
+                  {c}
+                </button>
+              ))}
+            </div>
+          )}
           <input
-            placeholder="备注（如：工资 / 转投资 / 房租）"
+            placeholder="备注（可选）"
             value={label}
             onChange={(e) => setLabel(e.target.value)}
             style={{ marginBottom: 8 }}

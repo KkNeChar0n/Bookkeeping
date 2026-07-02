@@ -52,7 +52,8 @@ export interface BudgetDetailRow {
   id: string;
   cardId: string;
   month: string; // YYYY-MM
-  label: string;
+  label: string; // 备注
+  category?: string; // 收支类型（收入/支出用）
   kind: 'IN' | 'OUT' | 'EXPENSE';
   amount: number; // cents（正数）
   createdAt: number;

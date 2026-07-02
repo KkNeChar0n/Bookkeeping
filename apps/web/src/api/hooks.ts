@@ -10,6 +10,7 @@ import { budgetPlanService } from '../services/budgetPlan.service';
 import { savingsActualService } from '../services/savingsActual.service';
 import { savingsSummaryService } from '../services/savingsSummary.service';
 import { spendService } from '../services/spend.service';
+import { spendStatsService } from '../services/spendStats.service';
 import { reconciliationService } from '../services/reconciliation.service';
 import { categoriesService } from '../services/categories';
 
@@ -218,6 +219,7 @@ export function useAddBudgetDetail() {
       cardId: string;
       month: string;
       label: string;
+      category?: string;
       kind: 'IN' | 'OUT' | 'EXPENSE';
       amount: string;
     }) => budgetPlanService.addDetail(body),
@@ -288,6 +290,11 @@ export function useSetFund() {
       cardsService.setFund(id, body),
     onSuccess: inv,
   });
+}
+
+// ---- 消费分类统计 ----
+export function useSpendStats(prefix: string) {
+  return useQuery({ queryKey: ['spend', 'stats', prefix], queryFn: () => spendStatsService.byCategory(prefix) });
 }
 
 // ---- 对账 ----

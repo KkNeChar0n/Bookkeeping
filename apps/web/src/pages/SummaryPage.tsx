@@ -1,9 +1,11 @@
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   useCardViews,
   useReconciliation,
   useSavingsSummary,
   useSpendMonth,
+  useSpendStats,
 } from '../api/hooks';
 import { currentMonthStr, fmtMoney, fmtSigned } from '../lib/format';
 import type { SavingsSummaryRow } from '../services/savingsSummary.service';
@@ -16,6 +18,12 @@ export function SummaryPage() {
   const views = useCardViews();
   const recon = useReconciliation();
   const navigate = useNavigate();
+
+  const [statMode, setStatMode] = useState<'month' | 'year'>('month');
+  const [statMonth, setStatMonth] = useState(currentMonthStr());
+  const [statYear, setStatYear] = useState(currentMonthStr().slice(0, 4));
+  const prefix = statMode === 'month' ? statMonth : statYear;
+  const stats = useSpendStats(prefix);
 
   const spendRows = spend.data ?? [];
   const savings = savingsSummary.data ?? [];
@@ -32,6 +40,50 @@ export function SummaryPage() {
           spendRows.map((v) => <SpendRow key={v.cardId} v={v} />)
         ) : (
           <div className="muted">没有消费卡</div>
+        )}
+      </div>
+
+      <div className="section-title">消费 · 分类统计</div>
+      <div className="card">
+        <div className="seg" style={{ marginBottom: 10 }}>
+          <button className={statMode === 'month' ? 'active' : ''} onClick={() => setStatMode('month')}>
+            按月
+          </button>
+          <button className={statMode === 'year' ? 'active' : ''} onClick={() => setStatMode('year')}>
+            按年
+          </button>
+        </div>
+        {statMode === 'month' ? (
+          <input type="month" value={statMonth} onChange={(e) => setStatMonth(e.target.value)} />
+        ) : (
+          <input
+            type="number"
+            min="2000"
+            max="2100"
+            value={statYear}
+            onChange={(e) => setStatYear(e.target.value)}
+          />
+        )}
+        <div className="kv mt">
+          <span>合计消费</span>
+          <b>{fmtMoney(stats.data?.total ?? '0')}</b>
+        </div>
+        {stats.data?.rows.length ? (
+          stats.data.rows.map((row) => (
+            <div className="cat-row" key={row.category}>
+              <div className="cat-line">
+                <span>{row.category}</span>
+                <span>
+                  {fmtMoney(row.amount)} · {row.pct}%
+                </span>
+              </div>
+              <div className="cat-bar">
+                <div className="cat-bar-fill" style={{ width: `${row.pct}%` }} />
+              </div>
+            </div>
+          ))
+        ) : (
+          <div className="muted mt">该期间没有消费</div>
         )}
       </div>
 

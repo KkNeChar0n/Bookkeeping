@@ -6,6 +6,7 @@ export type BudgetKind = 'IN' | 'OUT' | 'EXPENSE';
 export interface BudgetDetailDTO {
   id: string;
   label: string;
+  category: string | null;
   kind: BudgetKind;
   amount: string;
 }
@@ -20,7 +21,7 @@ export interface BudgetMonthDTO {
 }
 
 function toDetail(d: BudgetDetailRow): BudgetDetailDTO {
-  return { id: d.id, label: d.label, kind: d.kind, amount: fromCents(d.amount) };
+  return { id: d.id, label: d.label, category: d.category ?? null, kind: d.kind, amount: fromCents(d.amount) };
 }
 
 async function initialOf(cardId: string): Promise<Cents> {
@@ -63,6 +64,7 @@ export const budgetPlanService = {
     cardId: string;
     month: string;
     label: string;
+    category?: string;
     kind: BudgetKind;
     amount: string;
   }): Promise<void> {
@@ -73,7 +75,8 @@ export const budgetPlanService = {
       id: newId(),
       cardId: input.cardId,
       month: input.month,
-      label: input.label.trim() || defLabel,
+      label: input.label.trim() || input.category || defLabel,
+      category: input.category || undefined,
       kind: input.kind,
       amount: amt,
       createdAt: nowTs(),

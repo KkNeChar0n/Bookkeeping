@@ -452,6 +452,28 @@ td:first-child {
   margin-left: 6px;
 }
 
+/* ---- 消费分类统计条 ---- */
+.cat-row {
+  margin-top: 12px;
+}
+.cat-line {
+  display: flex;
+  justify-content: space-between;
+  font-size: 14px;
+  margin-bottom: 5px;
+}
+.cat-bar {
+  height: 8px;
+  background: var(--surface-2);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.cat-bar-fill {
+  height: 100%;
+  background: var(--primary);
+  border-radius: 999px;
+}
+
 /* ---- 主页：叠放卡片 ---- */
 .stack {
   border: 1px solid var(--border);
