@@ -1,6 +1,12 @@
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { useAddBudgetDetail, useBudgetMonths, useCards, useDeleteBudgetDetail } from '../api/hooks';
+import {
+  useAddBudgetDetail,
+  useBudgetMonths,
+  useCards,
+  useDeleteBudgetDetail,
+  useUpdateCard,
+} from '../api/hooks';
 import { currentMonthStr, fmtMoney } from '../lib/format';
 
 const KIND_LABEL: Record<'IN' | 'OUT' | 'EXPENSE', string> = {
@@ -14,6 +20,12 @@ export function BudgetCardPage() {
   const navigate = useNavigate();
   const cards = useCards();
   const card = cards.data?.find((c) => c.id === id);
+  const update = useUpdateCard();
+
+  const editInitial = () => {
+    const v = window.prompt('期初金额（预期余额的起点）', card?.initialBalance ?? '0');
+    if (v !== null && v.trim() !== '') update.mutate({ id, initialBalance: v.trim() });
+  };
 
   const [month, setMonth] = useState(currentMonthStr());
   const monthsQ = useBudgetMonths(id, [month]);
@@ -43,15 +55,20 @@ export function BudgetCardPage() {
           <strong>{card?.name ?? '储蓄卡'}</strong>
           <span className="type-tag">预算</span>
         </div>
-        <span style={{ width: 40 }} />
+        <div className="detail-actions">
+          <button className="mini" onClick={editInitial}>
+            期初调整
+          </button>
+        </div>
       </div>
 
-      {/* 月份选择 */}
+      {/* 月份选择 + 期初 */}
       <div className="card">
         <div className="field" style={{ margin: 0 }}>
           <label>月份</label>
           <input type="month" value={month} onChange={(e) => setMonth(e.target.value)} />
         </div>
+        <div className="muted mt">期初金额 {card ? fmtMoney(card.initialBalance) : '—'}（点右上「期初调整」修改）</div>
       </div>
 
       {/* 该月编辑 */}

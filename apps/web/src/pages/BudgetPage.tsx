@@ -79,7 +79,7 @@ function BudgetRow({ card, open, onToggle }: { card: Card; open: boolean; onTogg
             <div className="muted">本月还没有预算细节</div>
           )}
           <button className="mini mt" onClick={() => navigate(`/budget/${card.id}`)}>
-            按月编辑预算
+            收支
           </button>
         </div>
       )}
