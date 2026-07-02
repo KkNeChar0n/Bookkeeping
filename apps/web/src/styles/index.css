@@ -591,6 +591,12 @@ td:first-child {
   user-select: none;
   transition: transform 0.05s linear, border-color 0.15s;
 }
+/* 详情卡撑到底部 tab 附近，即便没数据 */
+.swipe-card.fill {
+  min-height: calc(100dvh - 210px);
+  display: flex;
+  flex-direction: column;
+}
 .swipe-card.income {
   border-color: var(--green);
 }

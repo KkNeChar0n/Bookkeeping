@@ -100,15 +100,16 @@ export function BudgetEditPage() {
     const ady = Math.abs(my);
 
     if (mode === 'idle') {
-      if (ady > adx && my < -THRESH) setMode('OUT');
-      else if (mx > THRESH) setMode('IN');
-      else if (mx < -THRESH) setMode('EXPENSE');
+      // 上滑需明显更竖直且幅度更大，避免和左右滑混淆
+      if (my < -90 && ady > adx * 1.8) setMode('OUT');
+      else if (adx >= ady && mx > THRESH) setMode('IN');
+      else if (adx >= ady && mx < -THRESH) setMode('EXPENSE');
       return;
     }
     // 已就绪：同方向再滑一次=确认
-    if (mode === 'IN' && mx > THRESH) return void submit('IN');
-    if (mode === 'EXPENSE' && mx < -THRESH) return void submit('EXPENSE');
-    if (mode === 'OUT' && ady > adx && my < -THRESH) return void submit('OUT');
+    if (mode === 'IN' && adx >= ady && mx > THRESH) return void submit('IN');
+    if (mode === 'EXPENSE' && adx >= ady && mx < -THRESH) return void submit('EXPENSE');
+    if (mode === 'OUT' && my < -90 && ady > adx * 1.8) return void submit('OUT');
     // 反向明显滑动=取消
     if (adx > THRESH || ady > THRESH) reset();
   };

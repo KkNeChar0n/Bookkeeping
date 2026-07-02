@@ -43,11 +43,14 @@ export function BudgetCardPage() {
     const dy = e.clientY - start.current.y;
     start.current = null;
     setDrag(0);
-    if (Math.abs(dy) > Math.abs(dx) && dy < -60) {
-      navigate(`/budget/${id}/edit?month=${month}`); // 上滑 → 收支调整
-    } else if (dx > 50) {
+    const adx = Math.abs(dx);
+    const ady = Math.abs(dy);
+    // 上滑：要求明显更竖直且幅度更大，避免和左右滑混淆
+    if (dy < -90 && ady > adx * 1.8) {
+      navigate(`/budget/${id}/edit?month=${month}`);
+    } else if (adx >= ady && dx > 45) {
       setMonth((m) => addMonths(m, -1)); // 右滑 → 上一月
-    } else if (dx < -50) {
+    } else if (adx >= ady && dx < -45) {
       setMonth((m) => addMonths(m, 1)); // 左滑 → 下一月
     }
   };
@@ -70,7 +73,7 @@ export function BudgetCardPage() {
       </div>
 
       <div
-        className="swipe-card"
+        className="swipe-card fill"
         style={{ transform: `translateX(${drag}px)` }}
         onPointerDown={onDown}
         onPointerMove={onMove}
@@ -114,7 +117,7 @@ export function BudgetCardPage() {
           <div className="muted">本月还没有预算明细</div>
         )}
 
-        <div className="swipe-hint" style={{ marginTop: 14 }}>
+        <div className="swipe-hint" style={{ marginTop: 'auto', paddingTop: 14 }}>
           ‹ 右滑上一月 · 左滑下一月 › · 上滑 ↑ 记收支
         </div>
       </div>
