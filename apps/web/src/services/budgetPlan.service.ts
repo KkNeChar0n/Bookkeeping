@@ -1,13 +1,17 @@
 import { db, newId, nowTs, type BudgetDetailRow } from '../db/db';
 import { fromCents, toCents, type Cents } from '../domain/money';
 
-export type BudgetKind = 'IN' | 'OUT' | 'EXPENSE';
+export type BudgetKind = 'IN' | 'OUT' | 'EXPENSE' | 'TRANSFER_IN';
+
+/** 对余额的符号：收入/调入为 +，调出/支出为 − */
+const sign = (kind: BudgetKind): number => (kind === 'IN' || kind === 'TRANSFER_IN' ? 1 : -1);
 
 export interface BudgetDetailDTO {
   id: string;
   label: string;
   category: string | null;
   kind: BudgetKind;
+  peerCardId: string | null;
   amount: string;
 }
 
@@ -21,7 +25,14 @@ export interface BudgetMonthDTO {
 }
 
 function toDetail(d: BudgetDetailRow): BudgetDetailDTO {
-  return { id: d.id, label: d.label, category: d.category ?? null, kind: d.kind, amount: fromCents(d.amount) };
+  return {
+    id: d.id,
+    label: d.label,
+    category: d.category ?? null,
+    kind: d.kind,
+    peerCardId: d.peerCardId ?? null,
+    amount: fromCents(d.amount),
+  };
 }
 
 async function initialOf(cardId: string): Promise<Cents> {
@@ -48,8 +59,8 @@ export const budgetPlanService = {
     let running = initial;
     return months.map((month) => {
       const details = (byMonth.get(month) ?? []).sort((a, b) => a.createdAt - b.createdAt);
-      // 收入 +，调出/支出 −（支出让预期余额直接减少）
-      const net = details.reduce((s, d) => s + (d.kind === 'IN' ? d.amount : -d.amount), 0);
+      // 收入/调入 +，调出/支出 −
+      const net = details.reduce((s, d) => s + sign(d.kind) * d.amount, 0);
       running += net;
       return {
         month,
@@ -70,7 +81,14 @@ export const budgetPlanService = {
   }): Promise<void> {
     const amt = toCents(input.amount);
     if (amt <= 0) throw new Error('金额必须为正');
-    const defLabel = input.kind === 'IN' ? '收入' : input.kind === 'OUT' ? '调出' : '支出';
+    const defLabel =
+      input.kind === 'IN'
+        ? '收入'
+        : input.kind === 'OUT'
+          ? '调出'
+          : input.kind === 'TRANSFER_IN'
+            ? '调入'
+            : '支出';
     await db.budgetDetails.add({
       id: newId(),
       cardId: input.cardId,
@@ -81,6 +99,50 @@ export const budgetPlanService = {
       amount: amt,
       createdAt: nowTs(),
     });
+  },
+
+  /** 预算层调出：本卡记一笔调出，对手储蓄卡同月记一笔调入（零和） */
+  async transfer(input: {
+    cardId: string;
+    peerCardId: string;
+    month: string;
+    amount: string;
+    note?: string;
+  }): Promise<void> {
+    if (!input.peerCardId) throw new Error('请选择对手储蓄卡');
+    if (input.peerCardId === input.cardId) throw new Error('对手卡不能是自己');
+    const amt = toCents(input.amount);
+    if (amt <= 0) throw new Error('金额必须为正');
+    const ts = nowTs();
+    const [self, peer] = await Promise.all([db.cards.get(input.cardId), db.cards.get(input.peerCardId)]);
+    await db.budgetDetails.bulkAdd([
+      {
+        id: newId(),
+        cardId: input.cardId,
+        month: input.month,
+        label: input.note?.trim() || `调出→${peer?.name ?? ''}`,
+        kind: 'OUT',
+        peerCardId: input.peerCardId,
+        amount: amt,
+        createdAt: ts,
+      },
+      {
+        id: newId(),
+        cardId: input.peerCardId,
+        month: input.month,
+        label: input.note?.trim() || `调入←${self?.name ?? ''}`,
+        kind: 'TRANSFER_IN',
+        peerCardId: input.cardId,
+        amount: amt,
+        createdAt: ts,
+      },
+    ]);
+  },
+
+  /** 某储蓄卡某月的预期收入（只算 IN，不含调入） */
+  async expectedIncome(cardId: string, month: string): Promise<Cents> {
+    const rows = await db.budgetDetails.where('[cardId+month]').equals([cardId, month]).toArray();
+    return rows.filter((r) => r.kind === 'IN').reduce((s, r) => s + r.amount, 0);
   },
 
   async deleteDetail(id: string): Promise<void> {
@@ -113,7 +175,7 @@ export const budgetPlanService = {
     let bal = initial;
     for (const r of rows) {
       if (r.month > month || r.kind === 'EXPENSE') continue; // 排除支出
-      bal += r.kind === 'IN' ? r.amount : -r.amount;
+      bal += sign(r.kind) * r.amount; // 收入/调入 +，调出 −
     }
     return bal;
   },

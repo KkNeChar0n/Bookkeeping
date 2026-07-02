@@ -15,18 +15,20 @@ export function SavingsCardPage() {
   const card = cards.data?.find((c) => c.id === id);
   const [month, setMonth] = useState(currentMonthStr());
   const [amount, setAmount] = useState('');
+  const [income, setIncome] = useState('');
 
   const rows = list.data ?? [];
   const existing = rows.find((r) => r.month === month);
 
-  // 切换月份时，把已有金额带入输入框
+  // 切换月份时，把已有金额/收入带入输入框
   useEffect(() => {
     setAmount(existing ? existing.amount : '');
-  }, [month, existing?.amount]); // eslint-disable-line react-hooks/exhaustive-deps
+    setIncome(existing?.income ?? '');
+  }, [month, existing?.amount, existing?.income]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const submit = async () => {
     if (!amount) return;
-    await setAmt.mutateAsync({ cardId: id, month, amount });
+    await setAmt.mutateAsync({ cardId: id, month, amount, income });
   };
 
   return (
@@ -53,17 +55,17 @@ export function SavingsCardPage() {
       {/* 该月填写 */}
       <div className="section-title">{month} · 真实储蓄金额{existing ? '（覆盖已有）' : ''}</div>
       <div className="card">
-        <div className="row-between" style={{ gap: 8 }}>
+        <div className="field">
+          <label>真实储蓄金额（当前余额）</label>
           <input type="number" step="0.01" placeholder="填写真实储蓄金额" value={amount} onChange={(e) => setAmount(e.target.value)} />
-          <button
-            className="primary"
-            style={{ width: 'auto', padding: '11px 18px', whiteSpace: 'nowrap' }}
-            onClick={submit}
-            disabled={!amount || setAmt.isPending}
-          >
-            保存
-          </button>
         </div>
+        <div className="field">
+          <label>本月收入（可选，用于统计的收入对比）</label>
+          <input type="number" step="0.01" placeholder="本月真实到手收入" value={income} onChange={(e) => setIncome(e.target.value)} />
+        </div>
+        <button className="primary" onClick={submit} disabled={!amount || setAmt.isPending}>
+          保存
+        </button>
       </div>
 
       {/* 历史（点选切换月份） */}

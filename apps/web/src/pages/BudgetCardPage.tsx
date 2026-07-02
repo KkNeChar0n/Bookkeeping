@@ -1,15 +1,20 @@
 import { useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
-  useAddBudgetDetail,
   useBudgetCurrentMonth,
+  useBudgetTransfer,
   useCards,
   useDeleteBudgetDetail,
   useUpdateCard,
 } from '../api/hooks';
 import { addMonths, currentMonthStr, fmtMoney } from '../lib/format';
 
-const KIND_LABEL: Record<'IN' | 'OUT' | 'EXPENSE', string> = { IN: '收入', OUT: '调出', EXPENSE: '支出' };
+const KIND_LABEL: Record<'IN' | 'OUT' | 'EXPENSE' | 'TRANSFER_IN', string> = {
+  IN: '收入',
+  OUT: '调出',
+  EXPENSE: '支出',
+  TRANSFER_IN: '调入',
+};
 
 export function BudgetCardPage() {
   const { id = '' } = useParams();
@@ -17,12 +22,17 @@ export function BudgetCardPage() {
   const cards = useCards();
   const card = cards.data?.find((c) => c.id === id);
   const update = useUpdateCard();
-  const addDetail = useAddBudgetDetail();
+  const budgetTransfer = useBudgetTransfer();
   const delDetail = useDeleteBudgetDetail();
 
   const [month, setMonth] = useState(currentMonthStr());
   const view = useBudgetCurrentMonth(id, month);
   const v = view.data;
+
+  const savings = (cards.data ?? []).filter((c) => c.type === 'SAVINGS' && c.id !== id);
+  const [showTransfer, setShowTransfer] = useState(false);
+  const [peer, setPeer] = useState('');
+  const [tAmt, setTAmt] = useState('');
 
   const start = useRef<{ x: number; y: number } | null>(null);
   const [drag, setDrag] = useState(0);
@@ -32,9 +42,12 @@ export function BudgetCardPage() {
     const val = window.prompt('期初金额（预期余额的起点）', card?.initialBalance ?? '0');
     if (val !== null && val.trim() !== '') update.mutate({ id, initialBalance: val.trim() });
   };
-  const addTransfer = () => {
-    const val = window.prompt(`${month} 调出金额（计划从本卡转出）`);
-    if (val && Number(val) > 0) addDetail.mutate({ cardId: id, month, kind: 'OUT', label: '调出', amount: val });
+  const doTransfer = async () => {
+    if (!peer || !tAmt) return;
+    await budgetTransfer.mutateAsync({ cardId: id, peerCardId: peer, month, amount: tAmt });
+    setTAmt('');
+    setPeer('');
+    setShowTransfer(false);
   };
 
   const onDown = (e: React.PointerEvent) => {
@@ -105,10 +118,37 @@ export function BudgetCardPage() {
           <button className="primary" style={{ flex: 1 }} onClick={() => navigate(`/budget/${id}/edit?month=${month}`)}>
             记收支
           </button>
-          <button style={{ flex: 1 }} onClick={addTransfer}>
+          <button style={{ flex: 1 }} onClick={() => setShowTransfer((s) => !s)}>
             调出
           </button>
         </div>
+        {showTransfer && (
+          <div className="card mt" onPointerDown={(e) => e.stopPropagation()}>
+            <div className="field">
+              <label>调出到（另一张储蓄卡）</label>
+              <select value={peer} onChange={(e) => setPeer(e.target.value)}>
+                <option value="">选择储蓄卡</option>
+                {savings.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="row-between" style={{ gap: 8 }}>
+              <input type="number" step="0.01" placeholder="金额" value={tAmt} onChange={(e) => setTAmt(e.target.value)} />
+              <button
+                className="primary"
+                style={{ width: 'auto', padding: '11px 18px', whiteSpace: 'nowrap' }}
+                onClick={doTransfer}
+                disabled={!peer || !tAmt}
+              >
+                确定
+              </button>
+            </div>
+            <div className="muted mt">对方卡的 {month} 会自动生成一条「调入」。</div>
+          </div>
+        )}
 
         <div className="divider" />
         <div className="detail-sub">本月预算明细</div>

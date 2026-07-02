@@ -11,7 +11,12 @@ import { currentMonthStr, fmtMoney } from '../lib/format';
 
 type Mode = 'idle' | 'IN' | 'EXPENSE';
 const THRESH = 60;
-const KIND_LABEL: Record<'IN' | 'OUT' | 'EXPENSE', string> = { IN: '收入', OUT: '调出', EXPENSE: '支出' };
+const KIND_LABEL: Record<'IN' | 'OUT' | 'EXPENSE' | 'TRANSFER_IN', string> = {
+  IN: '收入',
+  OUT: '调出',
+  EXPENSE: '支出',
+  TRANSFER_IN: '调入',
+};
 
 export function BudgetEditPage() {
   const { id = '' } = useParams();

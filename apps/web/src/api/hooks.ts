@@ -1,7 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { cardsService } from '../services/cards.service';
 import type { CardType } from './types';
-import { budgetsService } from '../services/budgets.service';
 import { txService } from '../services/transactions.service';
 import { comparisonService } from '../services/comparison.service';
 import { summaryService } from '../services/summary.service';
@@ -12,6 +11,7 @@ import { savingsSummaryService } from '../services/savingsSummary.service';
 import { spendService } from '../services/spend.service';
 import { spendStatsService } from '../services/spendStats.service';
 import { reconciliationService } from '../services/reconciliation.service';
+import { incomeCompareService } from '../services/incomeCompare.service';
 import { categoriesService } from '../services/categories';
 
 // ---- 失效所有受余额影响的视图 ----
@@ -28,6 +28,7 @@ function useInvalidateLedger() {
     qc.invalidateQueries({ queryKey: ['savings'] });
     qc.invalidateQueries({ queryKey: ['spend'] });
     qc.invalidateQueries({ queryKey: ['reconciliation'] });
+    qc.invalidateQueries({ queryKey: ['incomeCompare'] });
   };
 }
 
@@ -155,47 +156,6 @@ export function useDeleteTransaction() {
   return useMutation({ mutationFn: (id: string) => txService.remove(id), onSuccess: inv });
 }
 
-// ---- Budgets ----
-export function useBudgets() {
-  return useQuery({ queryKey: ['budgets'], queryFn: () => budgetsService.list() });
-}
-export function useCreateSnapshot() {
-  const inv = useInvalidateLedger();
-  return useMutation({
-    mutationFn: (body: { date: string; note?: string }) => budgetsService.upsertSnapshot(body),
-    onSuccess: inv,
-  });
-}
-export function useSetBudgetLine() {
-  const inv = useInvalidateLedger();
-  return useMutation({
-    mutationFn: (body: {
-      snapshotId: string;
-      cardId: string;
-      inAmount?: string;
-      outAmount?: string;
-    }) => budgetsService.setLine(body),
-    onSuccess: inv,
-  });
-}
-export function useBudgetTransfer() {
-  const inv = useInvalidateLedger();
-  return useMutation({
-    mutationFn: (body: {
-      snapshotId: string;
-      cardId: string;
-      direction: 'OUT' | 'IN';
-      peerCardId: string;
-      amount: string;
-    }) => budgetsService.transfer(body),
-    onSuccess: inv,
-  });
-}
-export function useDeleteSnapshot() {
-  const inv = useInvalidateLedger();
-  return useMutation({ mutationFn: (id: string) => budgetsService.remove(id), onSuccess: inv });
-}
-
 // ---- Card views (类型化摘要，随日期变化) ----
 export function useCardViews(date?: string) {
   return useQuery({
@@ -220,9 +180,17 @@ export function useAddBudgetDetail() {
       month: string;
       label: string;
       category?: string;
-      kind: 'IN' | 'OUT' | 'EXPENSE';
+      kind: 'IN' | 'OUT' | 'EXPENSE' | 'TRANSFER_IN';
       amount: string;
     }) => budgetPlanService.addDetail(body),
+    onSuccess: inv,
+  });
+}
+export function useBudgetTransfer() {
+  const inv = useInvalidateLedger();
+  return useMutation({
+    mutationFn: (body: { cardId: string; peerCardId: string; month: string; amount: string; note?: string }) =>
+      budgetPlanService.transfer(body),
     onSuccess: inv,
   });
 }
@@ -249,7 +217,7 @@ export function useSavingsList(cardId: string) {
 export function useSetSavingsAmount() {
   const inv = useInvalidateLedger();
   return useMutation({
-    mutationFn: (body: { cardId: string; month: string; amount: string }) =>
+    mutationFn: (body: { cardId: string; month: string; amount: string; income?: string }) =>
       savingsActualService.setAmount(body),
     onSuccess: inv,
   });
@@ -295,6 +263,11 @@ export function useSetFund() {
 // ---- 消费分类统计 ----
 export function useSpendStats(prefix: string) {
   return useQuery({ queryKey: ['spend', 'stats', prefix], queryFn: () => spendStatsService.byCategory(prefix) });
+}
+
+// ---- 收入对比 ----
+export function useIncomeCompare(month: string) {
+  return useQuery({ queryKey: ['incomeCompare', month], queryFn: () => incomeCompareService.compute(month) });
 }
 
 // ---- 对账 ----

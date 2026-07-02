@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   useCardViews,
+  useIncomeCompare,
   useReconciliation,
   useSavingsSummary,
   useSpendMonth,
@@ -24,6 +25,7 @@ export function SummaryPage() {
   const [statYear, setStatYear] = useState(currentMonthStr().slice(0, 4));
   const prefix = statMode === 'month' ? statMonth : statYear;
   const stats = useSpendStats(prefix);
+  const incomeCmp = useIncomeCompare(month);
 
   const spendRows = spend.data ?? [];
   const savings = savingsSummary.data ?? [];
@@ -85,6 +87,37 @@ export function SummaryPage() {
         ) : (
           <div className="muted mt">该期间没有消费</div>
         )}
+      </div>
+
+      <div className="section-title">收入 · 实际与预期（{month}）</div>
+      <div className="card">
+        {incomeCmp.data ? (
+          <table>
+            <tbody>
+              <tr>
+                <td>预期收入</td>
+                <td>{fmtMoney(incomeCmp.data.expected)}</td>
+              </tr>
+              <tr>
+                <td>实际收入</td>
+                <td>{fmtMoney(incomeCmp.data.actual)}</td>
+              </tr>
+              <tr>
+                <td>
+                  <strong>差额（实际−预期）</strong>
+                </td>
+                <td>
+                  <strong className={Number(incomeCmp.data.diff) >= 0 ? 'pos' : 'neg'}>
+                    {fmtSigned(incomeCmp.data.diff)}
+                  </strong>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        ) : (
+          <div className="muted">暂无数据</div>
+        )}
+        <div className="muted mt">实际收入在「储蓄」页填月度金额时一并填写。</div>
       </div>
 
       <div className="section-title">储蓄 · 实际与预期差额</div>
