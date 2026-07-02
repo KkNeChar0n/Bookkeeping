@@ -1,5 +1,7 @@
 import { db } from '../db/db';
 import { savingsSummaryService } from './savingsSummary.service';
+import { budgetPlanService } from './budgetPlan.service';
+import { savingsActualService } from './savingsActual.service';
 import { spendService } from './spend.service';
 import { fromCents, toCents } from '../domain/money';
 
@@ -22,22 +24,28 @@ function thisMonth(): string {
 export const reconciliationService = {
   async compute(): Promise<Reconciliation> {
     const month = thisMonth();
-    const [savings, spendViews, cards, budgetDetails, savingsActuals] = await Promise.all([
+    const [savings, spendViews, cards] = await Promise.all([
       savingsSummaryService.list(),
       spendService.listForMonth(month),
       db.cards.toArray(),
-      db.budgetDetails.toArray(),
-      db.savingsActuals.toArray(),
     ]);
     const funds = cards.filter((c) => c.type === 'FUND');
 
     let savingsExpected = 0;
     let savingsActual = 0;
     let savingsFilled = true;
+    // 收入差额：只对已填真实额的卡、且累计范围对齐到该卡填写的月份
+    let cumExpectedIncome = 0;
+    let cumActualIncome = 0;
     for (const s of savings) {
       savingsExpected += toCents(s.expected);
-      if (s.actual !== null) savingsActual += toCents(s.actual);
-      else savingsFilled = false;
+      if (s.actual !== null) {
+        savingsActual += toCents(s.actual);
+        cumExpectedIncome += await budgetPlanService.totalIncomeUpTo(s.cardId, s.month);
+        cumActualIncome += await savingsActualService.cumIncomeUpTo(s.cardId, s.month);
+      } else {
+        savingsFilled = false;
+      }
     }
 
     let fundPrincipal = 0;
@@ -49,14 +57,6 @@ export const reconciliationService = {
     const fundProfit = fundValue - fundPrincipal;
 
     const overspend = spendViews.reduce((s, v) => s + Math.max(0, -toCents(v.remaining)), 0);
-
-    // 累计收入差额（截至本月）：实际收入(储蓄tab) − 预期收入(预算 IN)
-    const cumExpectedIncome = budgetDetails
-      .filter((d) => d.kind === 'IN' && d.month <= month)
-      .reduce((s, d) => s + d.amount, 0);
-    const cumActualIncome = savingsActuals
-      .filter((r) => r.month <= month)
-      .reduce((s, r) => s + (r.income ?? 0), 0);
     const incomeDiff = cumActualIncome - cumExpectedIncome;
 
     const budgetTotal = savingsExpected + fundPrincipal;

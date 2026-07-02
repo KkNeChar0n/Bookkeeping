@@ -145,6 +145,12 @@ export const budgetPlanService = {
     return rows.filter((r) => r.kind === 'IN').reduce((s, r) => s + r.amount, 0);
   },
 
+  /** 某储蓄卡「截至某月」的累计预期收入（只算 IN） */
+  async totalIncomeUpTo(cardId: string, month: string): Promise<Cents> {
+    const rows = await db.budgetDetails.where('cardId').equals(cardId).toArray();
+    return rows.filter((r) => r.kind === 'IN' && r.month <= month).reduce((s, r) => s + r.amount, 0);
+  },
+
   async deleteDetail(id: string): Promise<void> {
     await db.budgetDetails.delete(id);
   },

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAddCategory, useCategoryList, useRemoveCategory, useRenameCategory } from '../api/hooks';
+import { BackupPanel } from '../components/BackupPanel';
 
 export function SettingsPage() {
   const navigate = useNavigate();
@@ -23,6 +24,8 @@ export function SettingsPage() {
 
       <KindSection kind="income" title="收入类型" rows={income} />
       <KindSection kind="expense" title="支出类型" rows={expense} />
+
+      <BackupPanel />
     </div>
   );
 }

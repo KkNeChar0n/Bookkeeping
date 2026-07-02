@@ -59,6 +59,12 @@ export const savingsActualService = {
     return rows.filter((r) => r.month === month).reduce((s, r) => s + (r.income ?? 0), 0);
   },
 
+  /** 某储蓄卡「截至某月」的累计真实收入 */
+  async cumIncomeUpTo(cardId: string, month: string): Promise<Cents> {
+    const rows = await db.savingsActuals.where('cardId').equals(cardId).toArray();
+    return rows.filter((r) => r.month <= month).reduce((s, r) => s + (r.income ?? 0), 0);
+  },
+
   async remove(id: string): Promise<void> {
     await db.savingsActuals.delete(id);
   },

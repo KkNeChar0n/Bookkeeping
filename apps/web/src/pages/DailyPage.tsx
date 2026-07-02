@@ -1,7 +1,6 @@
 import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useSpendMonth, useTransactions } from '../api/hooks';
-import { BackupPanel } from '../components/BackupPanel';
 import { CreateCardForm } from '../components/CreateCardForm';
 import { addDays, fmtDateCN, fmtMoney, todayStr } from '../lib/format';
 import type { SpendMonthView } from '../services/spend.service';
@@ -11,67 +10,93 @@ export function DailyPage() {
   const month = date.slice(0, 7);
   const views = useSpendMonth(month);
   const navigate = useNavigate();
-  const startX = useRef<number | null>(null);
   const [showCreate, setShowCreate] = useState(false);
 
+  const dateRef = useRef<HTMLInputElement>(null);
+  const openPicker = () => {
+    const el = dateRef.current;
+    if (!el) return;
+    try {
+      if (typeof el.showPicker === 'function') el.showPicker();
+      else el.focus();
+    } catch {
+      el.focus();
+    }
+  };
+
+  // 在卡片区左右滑动切换日期（区分滑动/点击，点击仍进详情）
+  const swipeStart = useRef<{ x: number; y: number } | null>(null);
+  const swiped = useRef(false);
   const shift = (d: number) => setDate((cur) => addDays(cur, d));
   const onDown = (e: React.PointerEvent) => {
-    startX.current = e.clientX;
+    swipeStart.current = { x: e.clientX, y: e.clientY };
+    swiped.current = false;
   };
   const onUp = (e: React.PointerEvent) => {
-    if (startX.current === null) return;
-    const dx = e.clientX - startX.current;
-    startX.current = null;
-    if (dx > 40) shift(-1);
-    else if (dx < -40) shift(1);
+    if (!swipeStart.current) return;
+    const dx = e.clientX - swipeStart.current.x;
+    const dy = e.clientY - swipeStart.current.y;
+    swipeStart.current = null;
+    if (Math.abs(dx) > 45 && Math.abs(dx) > Math.abs(dy)) {
+      swiped.current = true;
+      shift(dx < 0 ? 1 : -1);
+    }
+  };
+  const onClickCapture = (e: React.MouseEvent) => {
+    if (swiped.current) {
+      e.stopPropagation();
+      swiped.current = false;
+    }
   };
 
   return (
     <div>
       <div className="row-between" style={{ marginBottom: 2 }}>
-        <span />
+        {date !== todayStr() ? (
+          <button className="today-btn" onClick={() => setDate(todayStr())}>
+            回今天
+          </button>
+        ) : (
+          <span />
+        )}
         <button className="ghost" aria-label="设置" onClick={() => navigate('/settings')}>
           ⚙️
         </button>
       </div>
-      <div className="date-swipe" onPointerDown={onDown} onPointerUp={onUp}>
-        <div className="date-header">
-          <button className="ghost" onClick={() => shift(-1)} aria-label="前一天">
-            ‹
-          </button>
-          <div className="date-text">
-            {fmtDateCN(date)}
-            {date !== todayStr() && (
-              <button className="today-btn" onClick={() => setDate(todayStr())}>
-                回今天
-              </button>
-            )}
-          </div>
-          <button className="ghost" onClick={() => shift(1)} aria-label="后一天">
-            ›
-          </button>
-        </div>
-        <div className="muted date-hint">← 左右滑动看不同日期 →（消费按 {month} 统计）</div>
-      </div>
 
-      <div className="stack">
+      <div className="date-header" style={{ justifyContent: 'center', position: 'relative' }}>
+        <button className="date-text" onClick={openPicker}>
+          {fmtDateCN(date)}
+        </button>
+        <input
+          ref={dateRef}
+          type="date"
+          value={date}
+          onChange={(e) => e.target.value && setDate(e.target.value)}
+          style={{ position: 'absolute', left: '50%', bottom: 0, width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
+        />
+      </div>
+      <div className="muted date-hint">点日期可选年月日 · 在卡片上左右滑动切换日期</div>
+
+      <div className="day-swipe" onPointerDown={onDown} onPointerUp={onUp} onClickCapture={onClickCapture}>
         {views.data?.length ? (
-          views.data.map((v) => <SpendCard key={v.cardId} v={v} date={date} />)
+          <div className="stack">
+            {views.data.map((v) => (
+              <SpendCard key={v.cardId} v={v} date={date} />
+            ))}
+          </div>
         ) : (
           <div className="card muted">还没有消费卡，点下方「新建消费卡」。</div>
         )}
+
+        <div className="spacer" />
+        <button onClick={() => setShowCreate((s) => !s)}>{showCreate ? '收起' : '＋ 新建消费卡'}</button>
+        {showCreate && (
+          <div className="mt">
+            <CreateCardForm type="SPEND" placeholder="如：日常消费" />
+          </div>
+        )}
       </div>
-
-      <div className="spacer" />
-      <button onClick={() => setShowCreate((s) => !s)}>{showCreate ? '收起' : '＋ 新建消费卡'}</button>
-      {showCreate && (
-        <div className="mt">
-          <CreateCardForm type="SPEND" placeholder="如：日常消费" />
-        </div>
-      )}
-
-      <div className="spacer" />
-      <BackupPanel />
     </div>
   );
 }

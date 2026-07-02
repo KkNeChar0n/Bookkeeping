@@ -428,6 +428,16 @@ td:first-child {
   font-size: 12px;
   margin-bottom: 14px;
 }
+/* 记账：卡片区大滑动热区，撑到底部 tab */
+.day-swipe {
+  touch-action: pan-y;
+  min-height: calc(100dvh - 230px);
+}
+.date-text {
+  background: transparent;
+  border: none;
+  padding: 4px 8px;
+}
 
 /* ---- 卡片管理：每张卡一块，操作独立成行 ---- */
 .card-row {

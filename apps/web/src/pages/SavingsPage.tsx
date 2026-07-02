@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useCards, useSavingsList } from '../api/hooks';
 import { CreateCardForm } from '../components/CreateCardForm';
-import { BackupPanel } from '../components/BackupPanel';
 import { fmtMoney, fmtSigned } from '../lib/format';
 import type { Card } from '../api/types';
 
@@ -45,9 +44,6 @@ export function SavingsPage() {
           <CreateCardForm type="SAVINGS" placeholder="如：工资卡" />
         </div>
       )}
-
-      <div className="spacer" />
-      <BackupPanel />
     </div>
   );
 }
