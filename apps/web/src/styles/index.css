@@ -589,7 +589,8 @@ td:first-child {
   padding: 20px 16px;
   touch-action: pan-y;
   user-select: none;
-  transition: transform 0.05s linear, border-color 0.15s;
+  /* 松手回弹带一点缓动效果；拖动时组件会临时置为 none 以 1:1 跟手 */
+  transition: transform 0.3s cubic-bezier(0.34, 1.4, 0.64, 1), border-color 0.15s;
 }
 /* 详情卡撑到底部 tab 附近，即便没数据 */
 .swipe-card.fill {

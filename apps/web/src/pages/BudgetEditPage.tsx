@@ -9,7 +9,7 @@ import {
 } from '../api/hooks';
 import { currentMonthStr, fmtMoney } from '../lib/format';
 
-type Mode = 'idle' | 'IN' | 'EXPENSE' | 'OUT';
+type Mode = 'idle' | 'IN' | 'EXPENSE';
 const THRESH = 60;
 const KIND_LABEL: Record<'IN' | 'OUT' | 'EXPENSE', string> = { IN: '收入', OUT: '调出', EXPENSE: '支出' };
 
@@ -28,8 +28,8 @@ export function BudgetEditPage() {
   const v = view.data;
 
   const [mode, setMode] = useState<Mode>('idle');
-  const [dx, setDx] = useState(0);
-  const [dy, setDy] = useState(0);
+  const [drag, setDrag] = useState(0);
+  const [dragging, setDragging] = useState(false);
   const [amount, setAmount] = useState('');
   const [category, setCategory] = useState('');
   const [note, setNote] = useState('');
@@ -43,11 +43,10 @@ export function BudgetEditPage() {
     setAmount('');
     setCategory('');
     setNote('');
-    setDx(0);
-    setDy(0);
+    setDrag(0);
   };
 
-  const submit = async (kind: 'IN' | 'EXPENSE' | 'OUT') => {
+  const submit = async (kind: 'IN' | 'EXPENSE') => {
     if (submittingRef.current) return;
     if (!amount || Number(amount) <= 0) {
       setMsg('请先填写金额');
@@ -55,14 +54,7 @@ export function BudgetEditPage() {
     }
     submittingRef.current = true;
     try {
-      await addDetail.mutateAsync({
-        cardId: id,
-        month,
-        kind,
-        category: category || undefined,
-        label: note,
-        amount,
-      });
+      await addDetail.mutateAsync({ cardId: id, month, kind, category: category || undefined, label: note, amount });
       setMsg(`已记${KIND_LABEL[kind]}`);
       reset();
     } catch (e) {
@@ -75,56 +67,41 @@ export function BudgetEditPage() {
   const onDown = (e: React.PointerEvent) => {
     start.current = { x: e.clientX, y: e.clientY };
     gestureRef.current = true;
+    setDragging(true);
   };
   const onMove = (e: React.PointerEvent) => {
     if (!gestureRef.current || !start.current) return;
     const mx = e.clientX - start.current.x;
     const my = e.clientY - start.current.y;
-    if (Math.abs(mx) > Math.abs(my)) {
-      setDx(Math.max(-120, Math.min(120, mx)));
-      setDy(0);
-    } else {
-      setDy(Math.max(-120, Math.min(0, my)));
-      setDx(0);
-    }
+    if (Math.abs(mx) > Math.abs(my)) setDrag(Math.max(-120, Math.min(120, mx)));
   };
   const onUp = (e: React.PointerEvent) => {
+    setDragging(false);
     if (!gestureRef.current || !start.current) return;
     gestureRef.current = false;
     const mx = e.clientX - start.current.x;
     const my = e.clientY - start.current.y;
     start.current = null;
-    setDx(0);
-    setDy(0);
-    const adx = Math.abs(mx);
-    const ady = Math.abs(my);
-
+    setDrag(0);
+    if (Math.abs(mx) < Math.abs(my)) return; // 竖向滑动忽略
     if (mode === 'idle') {
-      // 上滑需明显更竖直且幅度更大，避免和左右滑混淆
-      if (my < -90 && ady > adx * 1.8) setMode('OUT');
-      else if (adx >= ady && mx > THRESH) setMode('IN');
-      else if (adx >= ady && mx < -THRESH) setMode('EXPENSE');
+      if (mx > THRESH) setMode('IN');
+      else if (mx < -THRESH) setMode('EXPENSE');
       return;
     }
-    // 已就绪：同方向再滑一次=确认
-    if (mode === 'IN' && adx >= ady && mx > THRESH) return void submit('IN');
-    if (mode === 'EXPENSE' && adx >= ady && mx < -THRESH) return void submit('EXPENSE');
-    if (mode === 'OUT' && my < -90 && ady > adx * 1.8) return void submit('OUT');
-    // 反向明显滑动=取消
-    if (adx > THRESH || ady > THRESH) reset();
+    if (mode === 'IN' && mx > THRESH) return void submit('IN');
+    if (mode === 'EXPENSE' && mx < -THRESH) return void submit('EXPENSE');
+    if (Math.abs(mx) > THRESH) reset(); // 反向滑动=取消
   };
 
-  const catList =
-    mode === 'IN' ? (categories.data?.income ?? []) : mode === 'EXPENSE' ? (categories.data?.expense ?? []) : [];
+  const catList = mode === 'IN' ? (categories.data?.income ?? []) : mode === 'EXPENSE' ? (categories.data?.expense ?? []) : [];
   const hint =
     mode === 'idle'
-      ? '右滑记收入 →　← 左滑记支出　↑ 上滑调出'
+      ? '右滑记收入 →　← 左滑记支出'
       : mode === 'IN'
         ? '填好后，再次右滑确认收入 →'
-        : mode === 'EXPENSE'
-          ? '← 填好后，再次左滑确认支出'
-          : '↑ 填好后，再次上滑确认调出';
-  const cardCls = mode === 'IN' ? 'income' : mode === 'EXPENSE' || mode === 'OUT' ? 'expense' : '';
+        : '← 填好后，再次左滑确认支出';
+  const cardCls = mode === 'IN' ? 'income' : mode === 'EXPENSE' ? 'expense' : '';
 
   return (
     <div>
@@ -134,21 +111,21 @@ export function BudgetEditPage() {
         </button>
         <div className="detail-title">
           <strong>{card?.name ?? '储蓄卡'}</strong>
-          <span className="type-tag">收支调整</span>
+          <span className="type-tag">记收支</span>
         </div>
         <span style={{ width: 40 }} />
       </div>
 
       <div className="card">
-        <div className="field" style={{ margin: 0 }} onPointerDown={(e) => e.stopPropagation()}>
+        <div className="field" style={{ margin: 0 }}>
           <label>月份</label>
           <input type="month" value={month} onChange={(e) => setMonth(e.target.value)} />
         </div>
       </div>
 
       <div
-        className={`swipe-card ${cardCls}`}
-        style={{ transform: `translate(${dx}px, ${dy}px)` }}
+        className={`swipe-card fill ${cardCls}`}
+        style={{ transform: `translateX(${drag}px)`, transition: dragging ? 'none' : undefined }}
         onPointerDown={onDown}
         onPointerMove={onMove}
         onPointerUp={onUp}
@@ -184,16 +161,9 @@ export function BudgetEditPage() {
           </div>
         )}
         <div className="swipe-hint">{hint}</div>
-      </div>
-      {mode !== 'idle' && (
-        <button className="ghost mt" onClick={reset}>
-          取消
-        </button>
-      )}
-      {msg && <div className="muted mt">{msg}</div>}
 
-      <div className="section-title">本月明细</div>
-      <div className="card">
+        <div className="divider" />
+        <div className="detail-sub">本月明细</div>
         {v && v.details.length ? (
           v.details.map((d) => (
             <div className="tx" key={d.id}>
@@ -209,7 +179,7 @@ export function BudgetEditPage() {
                   {d.kind === 'IN' ? '+' : '−'}
                   {fmtMoney(d.amount)}
                 </span>
-                <button className="ghost" onClick={() => delDetail.mutate(d.id)}>
+                <button className="ghost" onPointerDown={(e) => e.stopPropagation()} onClick={() => delDetail.mutate(d.id)}>
                   ✕
                 </button>
               </div>
@@ -219,6 +189,13 @@ export function BudgetEditPage() {
           <div className="muted">本月还没有明细</div>
         )}
       </div>
+
+      {mode !== 'idle' && (
+        <button className="ghost mt" onClick={reset}>
+          取消
+        </button>
+      )}
+      {msg && <div className="muted mt">{msg}</div>}
     </div>
   );
 }
