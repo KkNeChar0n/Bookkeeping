@@ -8,6 +8,7 @@ import { SavingsPage } from './pages/SavingsPage';
 import { SavingsCardPage } from './pages/SavingsCardPage';
 import { FundPage } from './pages/FundPage';
 import { SummaryPage } from './pages/SummaryPage';
+import { SettingsPage } from './pages/SettingsPage';
 
 export function App() {
   return (
@@ -22,6 +23,7 @@ export function App() {
           <Route path="/savings/:id" element={<SavingsCardPage />} />
           <Route path="/fund" element={<FundPage />} />
           <Route path="/summary" element={<SummaryPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>

@@ -4,6 +4,7 @@ import {
   type BudgetLineRow,
   type BudgetSnapshotRow,
   type CardRow,
+  type CategoryRow,
   type SavingsActualRow,
   type SpendQuotaRow,
   type TransactionRow,
@@ -20,6 +21,7 @@ export interface BackupData {
   budgetDetails?: BudgetDetailRow[];
   savingsActuals?: SavingsActualRow[];
   spendQuotas?: SpendQuotaRow[];
+  categories?: CategoryRow[];
 }
 
 export const backupService = {
@@ -32,6 +34,7 @@ export const backupService = {
       budgetDetails,
       savingsActuals,
       spendQuotas,
+      categories,
     ] = await Promise.all([
       db.cards.toArray(),
       db.budgetSnapshots.toArray(),
@@ -40,6 +43,7 @@ export const backupService = {
       db.budgetDetails.toArray(),
       db.savingsActuals.toArray(),
       db.spendQuotas.toArray(),
+      db.categories.toArray(),
     ]);
     return {
       app: 'bookkeeping',
@@ -52,6 +56,7 @@ export const backupService = {
       budgetDetails,
       savingsActuals,
       spendQuotas,
+      categories,
     };
   },
 
@@ -83,6 +88,7 @@ export const backupService = {
         db.budgetDetails,
         db.savingsActuals,
         db.spendQuotas,
+        db.categories,
       ],
       async () => {
         await Promise.all([
@@ -93,6 +99,7 @@ export const backupService = {
           db.budgetDetails.clear(),
           db.savingsActuals.clear(),
           db.spendQuotas.clear(),
+          db.categories.clear(),
         ]);
         await db.cards.bulkAdd(data.cards);
         await db.budgetSnapshots.bulkAdd(data.budgetSnapshots ?? []);
@@ -101,6 +108,7 @@ export const backupService = {
         await db.budgetDetails.bulkAdd(data.budgetDetails ?? []);
         await db.savingsActuals.bulkAdd(data.savingsActuals ?? []);
         await db.spendQuotas.bulkAdd(data.spendQuotas ?? []);
+        await db.categories.bulkAdd(data.categories ?? []);
       },
     );
     return { cards: data.cards.length, transactions: (data.transactions ?? []).length };

@@ -79,10 +79,30 @@ export function useReorderCards() {
 
 // ---- Categories ----
 export function useCategories() {
-  return useQuery({
-    queryKey: ['categories'],
-    queryFn: () => categoriesService.get(),
-    staleTime: Infinity,
+  return useQuery({ queryKey: ['categories'], queryFn: () => categoriesService.get() });
+}
+export function useCategoryList() {
+  return useQuery({ queryKey: ['categories', 'all'], queryFn: () => categoriesService.listAll() });
+}
+export function useAddCategory() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { kind: 'income' | 'expense'; name: string }) => categoriesService.add(body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['categories'] }),
+  });
+}
+export function useRenameCategory() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, name }: { id: string; name: string }) => categoriesService.rename(id, name),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['categories'] }),
+  });
+}
+export function useRemoveCategory() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => categoriesService.remove(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['categories'] }),
   });
 }
 

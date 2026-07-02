@@ -91,6 +91,7 @@ function SpendDetail({ cardId }: { cardId: string }) {
   const [drag, setDrag] = useState(0);
   const [amount, setAmount] = useState('');
   const [category, setCategory] = useState('');
+  const [note, setNote] = useState('');
   const [msg, setMsg] = useState('');
   const startX = useRef<number | null>(null);
   const dragRef = useRef(0);
@@ -109,6 +110,7 @@ function SpendDetail({ cardId }: { cardId: string }) {
     setArmed(false);
     setAmount('');
     setCategory('');
+    setNote('');
     setDrag(0);
   };
   const submit = async () => {
@@ -119,7 +121,13 @@ function SpendDetail({ cardId }: { cardId: string }) {
     }
     submittingRef.current = true;
     try {
-      await createEntry.mutateAsync({ cardId, type: 'OUT', amount, category: category || undefined });
+      await createEntry.mutateAsync({
+        cardId,
+        type: 'OUT',
+        amount,
+        category: category || undefined,
+        note: note || undefined,
+      });
       setMsg('已记支出');
       reset();
     } catch (e) {
@@ -222,7 +230,9 @@ function SpendDetail({ cardId }: { cardId: string }) {
               value={amount}
               autoFocus
               onChange={(e) => setAmount(e.target.value)}
+              style={{ marginBottom: 8 }}
             />
+            <input placeholder="备注（可选）" value={note} onChange={(e) => setNote(e.target.value)} />
           </div>
         )}
         <div className="swipe-hint expense">
@@ -240,7 +250,10 @@ function SpendDetail({ cardId }: { cardId: string }) {
                 <div>
                   支出{t.category ? ` · ${t.category}` : ''}
                 </div>
-                <div className="meta">{t.date}</div>
+                <div className="meta">
+                  {t.date}
+                  {t.note ? ` · ${t.note}` : ''}
+                </div>
               </div>
               <div className="row-between">
                 <span className="amt out">{fmtMoney(t.amount)}</span>

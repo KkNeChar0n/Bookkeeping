@@ -1,59 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import {
-  useAddBudgetDetail,
-  useBudgetMonths,
-  useCards,
-  useDeleteBudgetDetail,
-} from '../api/hooks';
+import { useAddBudgetDetail, useBudgetMonths, useCards, useDeleteBudgetDetail } from '../api/hooks';
 import { currentMonthStr, fmtMoney } from '../lib/format';
-import type { BudgetMonthDTO } from '../services/budgetPlan.service';
-
-export function BudgetCardPage() {
-  const { id = '' } = useParams();
-  const navigate = useNavigate();
-  const cards = useCards();
-  const [extraMonths, setExtraMonths] = useState<string[]>([]);
-  const [newMonth, setNewMonth] = useState(currentMonthStr());
-  const months = useBudgetMonths(id, extraMonths);
-
-  const card = cards.data?.find((c) => c.id === id);
-
-  const addMonth = () => {
-    if (newMonth && !extraMonths.includes(newMonth)) setExtraMonths((m) => [...m, newMonth]);
-  };
-
-  return (
-    <div>
-      <div className="row-between" style={{ marginBottom: 10 }}>
-        <button className="ghost" onClick={() => navigate('/budget')}>
-          ‹ 预算
-        </button>
-        <strong>
-          {card?.name ?? '储蓄卡'}
-          <span className="type-tag">预算</span>
-        </strong>
-        <span style={{ width: 40 }} />
-      </div>
-
-      <div className="card">
-        <label className="muted" style={{ display: 'block', marginBottom: 6 }}>
-          添加一个月份栏目
-        </label>
-        <div className="row-between">
-          <input type="month" value={newMonth} onChange={(e) => setNewMonth(e.target.value)} />
-          <button onClick={addMonth}>添加月份</button>
-        </div>
-      </div>
-
-      {months.data?.length ? (
-        [...months.data].reverse().map((m) => <MonthSection key={m.month} cardId={id} m={m} />)
-      ) : (
-        <div className="card muted mt">还没有月份，先在上方添加一个月份。</div>
-      )}
-    </div>
-  );
-}
 
 const KIND_LABEL: Record<'IN' | 'OUT' | 'EXPENSE', string> = {
   IN: '计划收入',
@@ -61,7 +9,17 @@ const KIND_LABEL: Record<'IN' | 'OUT' | 'EXPENSE', string> = {
   EXPENSE: '计划支出',
 };
 
-function MonthSection({ cardId, m }: { cardId: string; m: BudgetMonthDTO }) {
+export function BudgetCardPage() {
+  const { id = '' } = useParams();
+  const navigate = useNavigate();
+  const cards = useCards();
+  const card = cards.data?.find((c) => c.id === id);
+
+  const [month, setMonth] = useState(currentMonthStr());
+  const monthsQ = useBudgetMonths(id, [month]);
+  const months = monthsQ.data ?? [];
+  const cur = months.find((m) => m.month === month);
+
   const addDetail = useAddBudgetDetail();
   const delDetail = useDeleteBudgetDetail();
   const [label, setLabel] = useState('');
@@ -70,19 +28,39 @@ function MonthSection({ cardId, m }: { cardId: string; m: BudgetMonthDTO }) {
 
   const submit = async () => {
     if (!amount || Number(amount) <= 0) return;
-    await addDetail.mutateAsync({ cardId, month: m.month, label, kind, amount });
+    await addDetail.mutateAsync({ cardId: id, month, label, kind, amount });
     setLabel('');
     setAmount('');
   };
 
   return (
-    <>
+    <div>
+      <div className="detail-header">
+        <button className="ghost" onClick={() => navigate('/budget')}>
+          ‹ 预算
+        </button>
+        <div className="detail-title">
+          <strong>{card?.name ?? '储蓄卡'}</strong>
+          <span className="type-tag">预算</span>
+        </div>
+        <span style={{ width: 40 }} />
+      </div>
+
+      {/* 月份选择 */}
+      <div className="card">
+        <div className="field" style={{ margin: 0 }}>
+          <label>月份</label>
+          <input type="month" value={month} onChange={(e) => setMonth(e.target.value)} />
+        </div>
+      </div>
+
+      {/* 该月编辑 */}
       <div className="section-title">
-        {m.month} · 预期余额 {fmtMoney(m.expected)}
+        {month} · 预期余额 {cur ? fmtMoney(cur.expected) : '—'}
       </div>
       <div className="card">
-        {m.details.length ? (
-          m.details.map((d) => (
+        {cur && cur.details.length ? (
+          cur.details.map((d) => (
             <div className="tx" key={d.id}>
               <div>
                 <div>{d.label}</div>
@@ -103,7 +81,7 @@ function MonthSection({ cardId, m }: { cardId: string; m: BudgetMonthDTO }) {
           <div className="muted">本月还没有预算细节</div>
         )}
 
-        <div className="add-detail mt">
+        <div className="mt">
           <div className="seg" style={{ marginBottom: 8 }}>
             <button className={kind === 'IN' ? 'active' : ''} onClick={() => setKind('IN')}>
               收入
@@ -116,25 +94,44 @@ function MonthSection({ cardId, m }: { cardId: string; m: BudgetMonthDTO }) {
             </button>
           </div>
           <input
-            placeholder="名目（如：工资 / 转投资）"
+            placeholder="备注（如：工资 / 转投资 / 房租）"
             value={label}
             onChange={(e) => setLabel(e.target.value)}
             style={{ marginBottom: 8 }}
           />
           <div className="row-between" style={{ gap: 8 }}>
-            <input
-              type="number"
-              step="0.01"
-              placeholder="金额"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-            />
-            <button className="primary" style={{ width: 'auto', padding: '11px 18px' }} onClick={submit} disabled={!amount}>
+            <input type="number" step="0.01" placeholder="金额" value={amount} onChange={(e) => setAmount(e.target.value)} />
+            <button
+              className="primary"
+              style={{ width: 'auto', padding: '11px 18px', whiteSpace: 'nowrap' }}
+              onClick={submit}
+              disabled={!amount}
+            >
               添加
             </button>
           </div>
         </div>
       </div>
-    </>
+
+      {/* 历史（点选切换月份） */}
+      {months.length > 0 && (
+        <>
+          <div className="section-title">各月预期</div>
+          <div className="card">
+            {[...months].reverse().map((m) => (
+              <div
+                className={`tx${m.month === month ? ' picked' : ''}`}
+                key={m.month}
+                onClick={() => setMonth(m.month)}
+                style={{ cursor: 'pointer' }}
+              >
+                <div>{m.month}</div>
+                <span className="amt neutral">{fmtMoney(m.expected)}</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
   );
 }

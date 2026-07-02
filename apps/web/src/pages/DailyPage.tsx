@@ -27,6 +27,12 @@ export function DailyPage() {
 
   return (
     <div>
+      <div className="row-between" style={{ marginBottom: 2 }}>
+        <span />
+        <button className="ghost" aria-label="设置" onClick={() => navigate('/settings')}>
+          ⚙️
+        </button>
+      </div>
       <div className="date-swipe" onPointerDown={onDown} onPointerUp={onUp}>
         <div className="date-header">
           <button className="ghost" onClick={() => shift(-1)} aria-label="前一天">

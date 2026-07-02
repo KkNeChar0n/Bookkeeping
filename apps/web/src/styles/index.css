@@ -225,6 +225,12 @@ button:disabled {
 .tx:last-child {
   border-bottom: none;
 }
+.tx.picked {
+  background: rgba(59, 130, 246, 0.12);
+  border-radius: 8px;
+  padding-left: 8px;
+  padding-right: 8px;
+}
 .tx .meta {
   font-size: 12px;
   color: var(--text-dim);

@@ -76,6 +76,15 @@ export interface SpendQuotaRow {
   updatedAt: number;
 }
 
+// 收支类型（可编辑）
+export interface CategoryRow {
+  id: string;
+  kind: 'income' | 'expense';
+  name: string;
+  sortOrder: number;
+  createdAt: number;
+}
+
 export class BookkeepingDB extends Dexie {
   cards!: Table<CardRow, string>;
   budgetSnapshots!: Table<BudgetSnapshotRow, string>;
@@ -84,6 +93,7 @@ export class BookkeepingDB extends Dexie {
   budgetDetails!: Table<BudgetDetailRow, string>;
   savingsActuals!: Table<SavingsActualRow, string>;
   spendQuotas!: Table<SpendQuotaRow, string>;
+  categories!: Table<CategoryRow, string>;
 
   constructor() {
     super('bookkeeping');
@@ -112,6 +122,10 @@ export class BookkeepingDB extends Dexie {
     // v4：消费卡每月额度
     this.version(4).stores({
       spendQuotas: 'id, &[cardId+month], cardId',
+    });
+    // v5：可编辑收支类型
+    this.version(5).stores({
+      categories: 'id, kind',
     });
   }
 }
