@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   useCardViews,
   useCards,
@@ -14,7 +14,7 @@ import {
   useUpdateCard,
 } from '../api/hooks';
 import { CARD_TYPE_LABEL } from '../api/types';
-import { currentMonthStr, fmtMoney, fmtSigned } from '../lib/format';
+import { fmtMoney, fmtSigned, todayStr } from '../lib/format';
 
 const stop = (e: React.PointerEvent) => e.stopPropagation();
 
@@ -78,7 +78,9 @@ export function CardDetailPage() {
 
 // ---------- 消费卡：整框可左滑记账 ----------
 function SpendDetail({ cardId }: { cardId: string }) {
-  const [month, setMonth] = useState(currentMonthStr());
+  const [params] = useSearchParams();
+  const [date, setDate] = useState(params.get('date') || todayStr());
+  const month = date.slice(0, 7);
   const view = useSpendCardMonth(cardId, month);
   const setQuota = useSetQuota();
   const categories = useCategories();
@@ -125,6 +127,7 @@ function SpendDetail({ cardId }: { cardId: string }) {
         cardId,
         type: 'OUT',
         amount,
+        date,
         category: category || undefined,
         note: note || undefined,
       });
@@ -178,11 +181,11 @@ function SpendDetail({ cardId }: { cardId: string }) {
         onPointerUp={onUp}
         onPointerLeave={onUp}
       >
-        {/* 月份 + 额度（可点，不触发滑动） */}
+        {/* 记账日期 + 额度（可点，不触发滑动） */}
         <div onPointerDown={stop}>
           <div className="field">
-            <label>月份</label>
-            <input type="month" value={month} onChange={(e) => setMonth(e.target.value)} />
+            <label>记账日期（记到这一天，额度按当月）</label>
+            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
           </div>
           <div className="row-between" style={{ gap: 8 }}>
             <input

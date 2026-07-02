@@ -85,7 +85,7 @@ function SpendCard({ v, date }: { v: SpendMonthView; date: string }) {
   return (
     <div
       className={`stack-item${v.overspent ? ' over' : ''}`}
-      onClick={() => navigate(`/card/${v.cardId}`)}
+      onClick={() => navigate(`/card/${v.cardId}?date=${date}`)}
     >
       <div className="stack-head">
         <div className="stack-name">
