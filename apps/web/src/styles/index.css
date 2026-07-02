@@ -31,6 +31,7 @@ body {
   background: var(--bg);
   color: var(--text);
   font-size: 15px;
+  overflow-x: hidden; /* 切月卡片滑出屏幕时不产生横向滚动 */
 }
 
 .app {

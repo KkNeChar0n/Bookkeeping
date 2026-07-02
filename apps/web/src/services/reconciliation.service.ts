@@ -9,8 +9,9 @@ export interface Reconciliation {
   diff: string; // 实际 − 预算
   fundProfit: string; // 基金盈亏（市值 − 本金）
   overspend: string; // 消费超支合计（正数）
-  interest: string; // 利息/其他偏差（残差）
-  savingsFilled: boolean; // 储蓄是否都填了真实额（未填则总资产不完整）
+  incomeDiff: string; // 收入差额（累计实际收入 − 累计预期收入）
+  interest: string; // 利息/其他（残差）
+  savingsFilled: boolean;
 }
 
 function thisMonth(): string {
@@ -21,10 +22,12 @@ function thisMonth(): string {
 export const reconciliationService = {
   async compute(): Promise<Reconciliation> {
     const month = thisMonth();
-    const [savings, spendViews, cards] = await Promise.all([
+    const [savings, spendViews, cards, budgetDetails, savingsActuals] = await Promise.all([
       savingsSummaryService.list(),
       spendService.listForMonth(month),
       db.cards.toArray(),
+      db.budgetDetails.toArray(),
+      db.savingsActuals.toArray(),
     ]);
     const funds = cards.filter((c) => c.type === 'FUND');
 
@@ -45,16 +48,22 @@ export const reconciliationService = {
     }
     const fundProfit = fundValue - fundPrincipal;
 
-    const overspend = spendViews.reduce(
-      (s, v) => s + Math.max(0, -toCents(v.remaining)),
-      0,
-    );
+    const overspend = spendViews.reduce((s, v) => s + Math.max(0, -toCents(v.remaining)), 0);
+
+    // 累计收入差额（截至本月）：实际收入(储蓄tab) − 预期收入(预算 IN)
+    const cumExpectedIncome = budgetDetails
+      .filter((d) => d.kind === 'IN' && d.month <= month)
+      .reduce((s, d) => s + d.amount, 0);
+    const cumActualIncome = savingsActuals
+      .filter((r) => r.month <= month)
+      .reduce((s, r) => s + (r.income ?? 0), 0);
+    const incomeDiff = cumActualIncome - cumExpectedIncome;
 
     const budgetTotal = savingsExpected + fundPrincipal;
     const actualTotal = savingsActual + fundValue;
     const diff = actualTotal - budgetTotal;
-    // 差额 = 基金盈亏 − 超支 + 利息  →  利息 = 差额 − 基金盈亏 + 超支
-    const interest = diff - fundProfit + overspend;
+    // 差额 = 基金盈亏 − 消费超支 + 收入差额 + 利息
+    const interest = diff - fundProfit + overspend - incomeDiff;
 
     return {
       budgetTotal: fromCents(budgetTotal),
@@ -62,6 +71,7 @@ export const reconciliationService = {
       diff: fromCents(diff),
       fundProfit: fromCents(fundProfit),
       overspend: fromCents(overspend),
+      incomeDiff: fromCents(incomeDiff),
       interest: fromCents(interest),
       savingsFilled,
     };

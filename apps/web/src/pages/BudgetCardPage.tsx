@@ -36,7 +36,32 @@ export function BudgetCardPage() {
 
   const start = useRef<{ x: number; y: number } | null>(null);
   const [drag, setDrag] = useState(0);
-  const [dragging, setDragging] = useState(false);
+  const [instant, setInstant] = useState(false); // true=无过渡（跟手/瞬移）
+  const animating = useRef(false);
+  const screenW = () => Math.max(typeof window !== 'undefined' ? window.innerWidth : 400, 360);
+
+  // 切月动画：当前卡整张滑出 → 新月卡从另一侧滑入
+  const changeMonth = (delta: 1 | -1) => {
+    if (animating.current) return;
+    animating.current = true;
+    const out = delta === 1 ? -screenW() : screenW(); // 下一月向左滑出，上一月向右滑出
+    setInstant(false);
+    setDrag(out);
+    window.setTimeout(() => {
+      setMonth((m) => addMonths(m, delta));
+      setInstant(true);
+      setDrag(-out); // 瞬移到另一侧
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => {
+          setInstant(false);
+          setDrag(0); // 滑入
+          window.setTimeout(() => {
+            animating.current = false;
+          }, 320);
+        }),
+      );
+    }, 300);
+  };
 
   const editInitial = () => {
     const val = window.prompt('期初金额（预期余额的起点）', card?.initialBalance ?? '0');
@@ -51,25 +76,26 @@ export function BudgetCardPage() {
   };
 
   const onDown = (e: React.PointerEvent) => {
+    if (animating.current) return;
     start.current = { x: e.clientX, y: e.clientY };
-    setDragging(true);
+    setInstant(true);
   };
   const onMove = (e: React.PointerEvent) => {
     if (!start.current) return;
     const mx = e.clientX - start.current.x;
     const my = e.clientY - start.current.y;
-    if (Math.abs(mx) > Math.abs(my)) setDrag(Math.max(-120, Math.min(120, mx)));
+    if (Math.abs(mx) > Math.abs(my)) setDrag(Math.max(-160, Math.min(160, mx)));
   };
   const onUp = (e: React.PointerEvent) => {
-    setDragging(false);
     if (!start.current) return;
     const mx = e.clientX - start.current.x;
     const my = e.clientY - start.current.y;
     start.current = null;
-    setDrag(0);
-    if (Math.abs(mx) >= Math.abs(my)) {
-      if (mx > 45) setMonth((m) => addMonths(m, -1));
-      else if (mx < -45) setMonth((m) => addMonths(m, 1));
+    if (Math.abs(mx) >= Math.abs(my) && Math.abs(mx) > 45) {
+      changeMonth(mx < 0 ? 1 : -1); // 左滑下一月 / 右滑上一月
+    } else {
+      setInstant(false);
+      setDrag(0); // 回弹
     }
   };
 
@@ -92,18 +118,18 @@ export function BudgetCardPage() {
 
       <div
         className="swipe-card fill"
-        style={{ transform: `translateX(${drag}px)`, transition: dragging ? 'none' : undefined }}
+        style={{ transform: `translateX(${drag}px)`, transition: instant ? 'none' : undefined }}
         onPointerDown={onDown}
         onPointerMove={onMove}
         onPointerUp={onUp}
         onPointerLeave={onUp}
       >
         <div className="row-between" style={{ marginBottom: 6 }}>
-          <button className="ghost" onPointerDown={(e) => e.stopPropagation()} onClick={() => setMonth((m) => addMonths(m, -1))}>
+          <button className="ghost" onPointerDown={(e) => e.stopPropagation()} onClick={() => changeMonth(-1)}>
             ‹
           </button>
           <strong style={{ fontSize: 18 }}>{month}</strong>
-          <button className="ghost" onPointerDown={(e) => e.stopPropagation()} onClick={() => setMonth((m) => addMonths(m, 1))}>
+          <button className="ghost" onPointerDown={(e) => e.stopPropagation()} onClick={() => changeMonth(1)}>
             ›
           </button>
         </div>

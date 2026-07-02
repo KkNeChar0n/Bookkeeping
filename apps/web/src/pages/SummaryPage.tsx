@@ -181,6 +181,10 @@ export function SummaryPage() {
                 </td>
               </tr>
               <tr>
+                <td className="muted">· 收入差额</td>
+                <td className={Number(r.incomeDiff) >= 0 ? 'pos' : 'neg'}>{fmtSigned(r.incomeDiff)}</td>
+              </tr>
+              <tr>
                 <td className="muted">· 利息/其他</td>
                 <td className={Number(r.interest) >= 0 ? 'pos' : 'neg'}>{fmtSigned(r.interest)}</td>
               </tr>
