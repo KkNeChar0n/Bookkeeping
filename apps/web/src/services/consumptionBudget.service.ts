@@ -42,17 +42,20 @@ async function series(upTo: string) {
   let carryoverTotal = 0;
   let totalBudget = 0;
   let totalSpent = 0;
+  let overspendPos = 0; // Σ逐月 max(0, 已花 − 消费预算)：真正超过预算的部分
   const bufferStart = new Map<string, Cents>();
   for (const m of months) {
     bufferStart.set(m, buffer);
     const budget = budgetByM.get(m) ?? 0;
+    const spent = spentByM.get(m) ?? 0;
     const carry = Math.max(0, Math.min(buffer, budget));
     carryoverTotal += carry;
     totalBudget += budget;
-    totalSpent += spentByM.get(m) ?? 0;
-    buffer = buffer + budget + (excessByM.get(m) ?? 0) - (spentByM.get(m) ?? 0) - carry;
+    totalSpent += spent;
+    overspendPos += Math.max(0, spent - budget);
+    buffer = buffer + budget + (excessByM.get(m) ?? 0) - spent - carry;
   }
-  return { bufferEnd: buffer, carryoverTotal, totalBudget, totalSpent, bufferStart };
+  return { bufferEnd: buffer, carryoverTotal, totalBudget, totalSpent, overspendPos, bufferStart };
 }
 
 export interface CBudgetDTO {
@@ -130,6 +133,7 @@ export const consumptionBudgetService = {
     totalBudget: Cents;
     totalSpent: Cents;
     carryover: Cents;
+    overspendPos: Cents;
     buffer: Cents;
   }> {
     const s = await series(refMonth);
@@ -137,6 +141,7 @@ export const consumptionBudgetService = {
       totalBudget: s.totalBudget,
       totalSpent: s.totalSpent,
       carryover: s.carryoverTotal,
+      overspendPos: s.overspendPos,
       buffer: s.bufferEnd,
     };
   },

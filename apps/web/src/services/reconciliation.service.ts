@@ -58,16 +58,17 @@ export const reconciliationService = {
     const fundProfit = fundValue - fundPrincipal;
 
     // 消费侧累计量（含跨月结转）
-    const { totalBudget, totalSpent, carryover, buffer } =
-      await consumptionBudgetService.reconcileTotals(ref);
-    const overspend = totalSpent - totalBudget; // 净超支（已花 − 消费预算）
-    const prepaid = buffer; // 预充暂存（结转会自动把它降到 0）
+    const { carryover, overspendPos } = await consumptionBudgetService.reconcileTotals(ref);
+    const moved = await savingsEntryService.cumExcessUpTo(ref); // 额外挪给消费卡的钱
+    const overspend = overspendPos; // 消费超支：逐月真正超过预算的部分（没花就是 0）
+    const prepaid = moved - overspend - carryover; // 预充暂存：额外结余（正常没花的预算不计入）
     const incomeDiff = cumActualIncome - cumExpectedIncome;
 
     const budgetTotal = savingsExpected + fundPrincipal;
     const actualTotal = savingsActual + fundValue;
     const diff = actualTotal - budgetTotal;
     // 差额 = 基金盈亏 + 收入差额 + 利息 − 消费超支 − 预充暂存
+    //      （消费超支 + 预充暂存 = Σ超额支出 − Σ结转 = 额外挪出净额）
     const interest = diff - fundProfit - incomeDiff + overspend + prepaid;
 
     return {
