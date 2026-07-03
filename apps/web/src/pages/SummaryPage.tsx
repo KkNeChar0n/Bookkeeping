@@ -180,7 +180,7 @@ export function SummaryPage() {
               <span className={Number(r.fundProfit) >= 0 ? 'pos' : 'neg'}>{fmtSigned(r.fundProfit)}</span>
             </div>
             <div className="brk">
-              <span>消费超支(累计)</span>
+              <span>超额支出(累计)</span>
               <span className={Number(r.overspend) > 0 ? 'neg' : ''}>
                 {Number(r.overspend) > 0 ? `−${fmtMoney(r.overspend)}` : '0.00'}
               </span>
@@ -194,7 +194,7 @@ export function SummaryPage() {
               <span className={Number(r.interest) >= 0 ? 'pos' : 'neg'}>{fmtSigned(r.interest)}</span>
             </div>
             <div className="muted mt" style={{ fontSize: 12 }}>
-              预算总资产已自动扣除计划消费（消费额度）。
+              超额支出=你在储蓄卡里记的、额外充给消费卡的钱。
             </div>
             {!r.savingsFilled && (
               <div className="warn mt">部分储蓄卡未填该期真实额，总资产/差额暂不完整。</div>

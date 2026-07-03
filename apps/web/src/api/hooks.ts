@@ -7,6 +7,7 @@ import { summaryService } from '../services/summary.service';
 import { cardViewService } from '../services/cardview.service';
 import { budgetPlanService } from '../services/budgetPlan.service';
 import { savingsActualService } from '../services/savingsActual.service';
+import { savingsEntryService } from '../services/savingsEntry.service';
 import { savingsSummaryService } from '../services/savingsSummary.service';
 import { spendService } from '../services/spend.service';
 import { spendStatsService } from '../services/spendStats.service';
@@ -217,10 +218,36 @@ export function useSavingsList(cardId: string) {
 export function useSetSavingsAmount() {
   const inv = useInvalidateLedger();
   return useMutation({
-    mutationFn: (body: { cardId: string; month: string; amount: string; income?: string }) =>
+    mutationFn: (body: { cardId: string; month: string; amount: string }) =>
       savingsActualService.setAmount(body),
     onSuccess: inv,
   });
+}
+
+// ---- 储蓄卡多笔条目（收入 / 超额支出） ----
+export function useSavingsEntries(cardId: string, month: string) {
+  return useQuery({
+    queryKey: ['savings', 'entries', cardId, month],
+    queryFn: () => savingsEntryService.list(cardId, month),
+    enabled: !!cardId,
+  });
+}
+export function useAddSavingsEntry() {
+  const inv = useInvalidateLedger();
+  return useMutation({
+    mutationFn: (body: {
+      cardId: string;
+      month: string;
+      kind: 'INCOME' | 'EXCESS';
+      amount: string;
+      note?: string;
+    }) => savingsEntryService.add(body),
+    onSuccess: inv,
+  });
+}
+export function useRemoveSavingsEntry() {
+  const inv = useInvalidateLedger();
+  return useMutation({ mutationFn: (id: string) => savingsEntryService.remove(id), onSuccess: inv });
 }
 export function useRemoveSavings() {
   const inv = useInvalidateLedger();

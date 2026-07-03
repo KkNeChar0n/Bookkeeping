@@ -67,8 +67,19 @@ export interface SavingsActualRow {
   cardId: string;
   month: string; // YYYY-MM
   amount: number; // cents（真实储蓄余额）
-  income?: number; // cents（本月真实收入，可选）
+  income?: number; // cents（旧版单条收入，已迁移到 savingsEntries）
   updatedAt: number;
+}
+
+// 储蓄卡按月的多笔条目：收入 / 超额支出（充给消费卡的额外钱）
+export interface SavingsEntryRow {
+  id: string;
+  cardId: string;
+  month: string; // YYYY-MM
+  kind: 'INCOME' | 'EXCESS';
+  amount: number; // cents
+  note?: string;
+  createdAt: number;
 }
 
 // 消费卡每月额度
@@ -98,6 +109,7 @@ export class BookkeepingDB extends Dexie {
   savingsActuals!: Table<SavingsActualRow, string>;
   spendQuotas!: Table<SpendQuotaRow, string>;
   categories!: Table<CategoryRow, string>;
+  savingsEntries!: Table<SavingsEntryRow, string>;
 
   constructor() {
     super('bookkeeping');
@@ -131,6 +143,26 @@ export class BookkeepingDB extends Dexie {
     this.version(5).stores({
       categories: 'id, kind',
     });
+    // v6：储蓄卡多笔收入/超额支出；把旧的单条 income 迁移过来
+    this.version(6)
+      .stores({ savingsEntries: 'id, cardId, [cardId+month], kind' })
+      .upgrade(async (tx) => {
+        const rows = (await tx.table('savingsActuals').toArray()) as SavingsActualRow[];
+        const entries: SavingsEntryRow[] = [];
+        for (const r of rows) {
+          if (r.income && r.income > 0) {
+            entries.push({
+              id: crypto.randomUUID(),
+              cardId: r.cardId,
+              month: r.month,
+              kind: 'INCOME',
+              amount: r.income,
+              createdAt: r.updatedAt,
+            });
+          }
+        }
+        if (entries.length) await tx.table('savingsEntries').bulkAdd(entries);
+      });
   }
 }
 

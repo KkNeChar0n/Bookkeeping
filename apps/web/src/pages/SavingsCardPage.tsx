@@ -1,6 +1,14 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { useCards, useRemoveSavings, useSavingsList, useSetSavingsAmount } from '../api/hooks';
+import {
+  useAddSavingsEntry,
+  useCards,
+  useRemoveSavings,
+  useRemoveSavingsEntry,
+  useSavingsEntries,
+  useSavingsList,
+  useSetSavingsAmount,
+} from '../api/hooks';
 import { CardManageBar } from '../components/CardManageBar';
 import { currentMonthStr, fmtMoney, fmtSigned } from '../lib/format';
 
@@ -15,20 +23,18 @@ export function SavingsCardPage() {
   const card = cards.data?.find((c) => c.id === id);
   const [month, setMonth] = useState(currentMonthStr());
   const [amount, setAmount] = useState('');
-  const [income, setIncome] = useState('');
 
   const rows = list.data ?? [];
   const existing = rows.find((r) => r.month === month);
+  const entries = useSavingsEntries(id, month);
 
-  // 切换月份时，把已有金额/收入带入输入框
   useEffect(() => {
     setAmount(existing ? existing.amount : '');
-    setIncome(existing?.income ?? '');
-  }, [month, existing?.amount, existing?.income]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [month, existing?.amount]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const submit = async () => {
     if (!amount) return;
-    await setAmt.mutateAsync({ cardId: id, month, amount, income });
+    await setAmt.mutateAsync({ cardId: id, month, amount });
   };
 
   return (
@@ -44,7 +50,6 @@ export function SavingsCardPage() {
         <span style={{ width: 40 }} />
       </div>
 
-      {/* 月份选择 */}
       <div className="card">
         <div className="field" style={{ margin: 0 }}>
           <label>月份</label>
@@ -52,32 +57,34 @@ export function SavingsCardPage() {
         </div>
       </div>
 
-      {/* 该月填写 */}
       <div className="section-title">{month} · 真实储蓄金额{existing ? '（覆盖已有）' : ''}</div>
       <div className="card">
-        <div className="field">
-          <label>真实储蓄金额（当前余额）</label>
+        <div className="row-between" style={{ gap: 8 }}>
           <input type="number" step="0.01" placeholder="填写真实储蓄金额" value={amount} onChange={(e) => setAmount(e.target.value)} />
+          <button
+            className="primary"
+            style={{ width: 'auto', padding: '11px 18px', whiteSpace: 'nowrap' }}
+            onClick={submit}
+            disabled={!amount || setAmt.isPending}
+          >
+            保存
+          </button>
         </div>
-        <div className="field">
-          <label>本月收入（可选，用于统计的收入对比）</label>
-          <input type="number" step="0.01" placeholder="本月真实到手收入" value={income} onChange={(e) => setIncome(e.target.value)} />
-        </div>
-        <button className="primary" onClick={submit} disabled={!amount || setAmt.isPending}>
-          保存
-        </button>
       </div>
 
-      {/* 历史（点选切换月份） */}
+      <EntrySection cardId={id} month={month} kind="INCOME" title="本月收入" data={entries.data ?? []} />
+      <EntrySection cardId={id} month={month} kind="EXCESS" title="超额支出（额外充给消费卡的钱）" data={entries.data ?? []} />
+
+      {/* 历史储蓄余额 */}
       {rows.length > 0 && (
         <>
-          <div className="section-title">各月储蓄</div>
+          <div className="section-title">各月储蓄余额</div>
           <div className="card">
             {rows.map((r, i) => {
               const prev = rows[i + 1];
               const delta = prev ? Number(r.amount) - Number(prev.amount) : null;
               return (
-                <div className={`tx${r.month === month ? ' picked' : ''}`} key={r.id}>
+                <div className="tx" key={r.id}>
                   <div onClick={() => setMonth(r.month)} style={{ cursor: 'pointer', flex: 1 }}>
                     <div>{r.month}</div>
                     {delta !== null && (
@@ -100,14 +107,68 @@ export function SavingsCardPage() {
       )}
 
       {card && (
-        <CardManageBar
-          cardId={id}
-          name={card.name}
-          initialBalance={card.initialBalance}
-          showInitial
-          onDeleted={() => navigate('/savings')}
-        />
+        <CardManageBar cardId={id} name={card.name} initialBalance={card.initialBalance} showInitial onDeleted={() => navigate('/savings')} />
       )}
     </div>
+  );
+}
+
+function EntrySection({
+  cardId,
+  month,
+  kind,
+  title,
+  data,
+}: {
+  cardId: string;
+  month: string;
+  kind: 'INCOME' | 'EXCESS';
+  title: string;
+  data: { id: string; kind: string; amount: string; note: string | null }[];
+}) {
+  const add = useAddSavingsEntry();
+  const remove = useRemoveSavingsEntry();
+  const [amount, setAmount] = useState('');
+  const [note, setNote] = useState('');
+  const rows = data.filter((d) => d.kind === kind);
+  const total = rows.reduce((s, r) => s + Number(r.amount), 0);
+
+  const submit = async () => {
+    if (!amount) return;
+    await add.mutateAsync({ cardId, month, kind, amount, note: note || undefined });
+    setAmount('');
+    setNote('');
+  };
+
+  return (
+    <>
+      <div className="section-title">
+        {title} · 合计 {fmtMoney(total)}
+      </div>
+      <div className="card">
+        {rows.length ? (
+          rows.map((r) => (
+            <div className="tx" key={r.id}>
+              <div>
+                <div>{fmtMoney(r.amount)}</div>
+                {r.note ? <div className="meta">{r.note}</div> : null}
+              </div>
+              <button className="ghost" onClick={() => remove.mutate(r.id)}>
+                ✕
+              </button>
+            </div>
+          ))
+        ) : (
+          <div className="muted">还没有记录</div>
+        )}
+        <div className="row-between mt" style={{ gap: 8 }}>
+          <input type="number" step="0.01" placeholder="金额" value={amount} onChange={(e) => setAmount(e.target.value)} />
+          <input placeholder="备注(可选)" value={note} onChange={(e) => setNote(e.target.value)} style={{ flex: 1 }} />
+          <button style={{ width: 'auto', padding: '11px 16px', whiteSpace: 'nowrap' }} onClick={submit} disabled={!amount}>
+            添加
+          </button>
+        </div>
+      </div>
+    </>
   );
 }

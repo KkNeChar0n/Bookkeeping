@@ -1,7 +1,7 @@
 import { db } from '../db/db';
 import { budgetPlanService } from './budgetPlan.service';
 import { savingsActualService } from './savingsActual.service';
-import { spendService } from './spend.service';
+import { savingsEntryService } from './savingsEntry.service';
 import { fromCents } from '../domain/money';
 
 export interface Reconciliation {
@@ -40,7 +40,7 @@ export const reconciliationService = {
       if (bal) {
         savingsActual += bal.amount;
         cumExpectedIncome += await budgetPlanService.totalIncomeUpTo(c.id, ref);
-        cumActualIncome += await savingsActualService.cumIncomeUpTo(c.id, ref);
+        cumActualIncome += await savingsEntryService.cumIncomeUpTo(c.id, ref);
       } else {
         savingsFilled = false;
       }
@@ -54,15 +54,14 @@ export const reconciliationService = {
     }
     const fundProfit = fundValue - fundPrincipal;
 
-    const overspend = await spendService.cumOverspendUpTo(ref);
-    const plannedConsumption = await spendService.cumQuotaUpTo(ref); // 计划消费=累计额度
+    // 消费从储蓄真正流出的钱 = 累计"超额支出"（充给消费卡的额外钱）
+    const overspend = await savingsEntryService.cumExcessUpTo(ref);
     const incomeDiff = cumActualIncome - cumExpectedIncome;
 
-    // 计划消费(额度)本就打算离开资产，从预算总资产扣掉；无需手记支出
-    const budgetTotal = savingsExpected + fundPrincipal - plannedConsumption;
+    const budgetTotal = savingsExpected + fundPrincipal;
     const actualTotal = savingsActual + fundValue;
     const diff = actualTotal - budgetTotal;
-    // 差额 = 基金盈亏 − 消费超支 + 收入差额 + 利息
+    // 差额 = 基金盈亏 − 超额支出 + 收入差额 + 利息
     const interest = diff - fundProfit + overspend - incomeDiff;
 
     return {
