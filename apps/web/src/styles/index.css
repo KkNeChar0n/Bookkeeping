@@ -34,9 +34,10 @@ body {
   overflow: hidden; /* 页面本身不滚动，滚动发生在 .app 内 */
 }
 
-/* 外壳占满视口高度；内容区滚动，nav 作为底部 flex 项，永远贴底 */
+/* 外壳占满视口高度；内容区滚动，nav 作为底部 flex 项，永远贴底。
+   iOS 普通流的 100% 到不了物理底部（缺底部安全区），向下补一个安全区高度兜底。 */
 .shell {
-  height: 100%;
+  height: calc(100% + env(safe-area-inset-bottom));
   max-width: 560px;
   margin: 0 auto;
   display: flex;
