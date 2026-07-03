@@ -10,7 +10,7 @@ const tabs = [
 
 export function Layout() {
   return (
-    <>
+    <div className="shell">
       <div className="app">
         <Outlet />
       </div>
@@ -29,6 +29,6 @@ export function Layout() {
           </NavLink>
         ))}
       </nav>
-    </>
+    </div>
   );
 }
