@@ -36,11 +36,22 @@ export function useCardSlide(onCommit: (dir: 1 | -1) => void) {
     }, 300);
   };
 
+  const cancel = () => {
+    start.current = null;
+    setInstant(false);
+    setDrag(0); // 复位，避免卡在半路
+  };
+
   const onPointerDown = (e: React.PointerEvent) => {
     if (animating.current) return;
     start.current = { x: e.clientX, y: e.clientY };
     swiped.current = false;
     setInstant(true);
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId); // 保证后续 up/cancel 一定回到本元素
+    } catch {
+      /* ignore */
+    }
   };
   const onPointerMove = (e: React.PointerEvent) => {
     if (!start.current) return;
@@ -71,7 +82,7 @@ export function useCardSlide(onCommit: (dir: 1 | -1) => void) {
   return {
     drag,
     instant,
-    handlers: { onPointerDown, onPointerMove, onPointerUp },
+    handlers: { onPointerDown, onPointerMove, onPointerUp, onPointerCancel: cancel },
     onClickCapture,
   };
 }
