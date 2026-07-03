@@ -156,6 +156,22 @@ export function useDeleteTransaction() {
   const inv = useInvalidateLedger();
   return useMutation({ mutationFn: (id: string) => txService.remove(id), onSuccess: inv });
 }
+export function useUpdateTransaction() {
+  const inv = useInvalidateLedger();
+  return useMutation({
+    mutationFn: ({
+      id,
+      ...body
+    }: {
+      id: string;
+      amount?: string;
+      category?: string;
+      note?: string;
+      date?: string;
+    }) => txService.update(id, body),
+    onSuccess: inv,
+  });
+}
 
 // ---- Card views (类型化摘要，随日期变化) ----
 export function useCardViews(date?: string) {

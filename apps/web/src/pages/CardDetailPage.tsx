@@ -12,8 +12,9 @@ import {
   useSpendCardMonth,
   useTransactions,
   useUpdateCard,
+  useUpdateTransaction,
 } from '../api/hooks';
-import { CARD_TYPE_LABEL } from '../api/types';
+import { CARD_TYPE_LABEL, type Transaction } from '../api/types';
 import { fmtMoney, fmtSigned, todayStr } from '../lib/format';
 
 const stop = (e: React.PointerEvent) => e.stopPropagation();
@@ -85,7 +86,6 @@ function SpendDetail({ cardId }: { cardId: string }) {
   const setQuota = useSetQuota();
   const categories = useCategories();
   const createEntry = useCreateEntry();
-  const delTx = useDeleteTransaction();
   const txs = useTransactions({ cardId });
 
   const [quota, setQuotaInput] = useState('');
@@ -117,6 +117,10 @@ function SpendDetail({ cardId }: { cardId: string }) {
   };
   const submit = async () => {
     if (submittingRef.current) return;
+    if (!category) {
+      setMsg('请先选择类型');
+      return;
+    }
     if (!amount || Number(amount) <= 0) {
       setMsg('请先填写金额');
       return;
@@ -128,7 +132,7 @@ function SpendDetail({ cardId }: { cardId: string }) {
         type: 'OUT',
         amount,
         date,
-        category: category || undefined,
+        category,
         note: note || undefined,
       });
       setMsg('已记支出');
@@ -239,33 +243,15 @@ function SpendDetail({ cardId }: { cardId: string }) {
           </div>
         )}
         <div className="swipe-hint expense">
-          {armed ? '← 填好金额后，再次左滑确认支出' : '← 在此区域左滑记一笔消费'}
+          {armed ? '← 选类型、填金额后，再次左滑确认' : '← 在此区域左滑记一笔消费'}
         </div>
 
         <div className="divider" />
 
-        {/* 流水 */}
-        <div className="detail-sub">本月流水</div>
+        {/* 流水（点击可改日期/类型） */}
+        <div className="detail-sub">本月流水（点一笔可改）</div>
         {rows.length ? (
-          rows.map((t) => (
-            <div className="tx" key={t.id}>
-              <div>
-                <div>
-                  支出{t.category ? ` · ${t.category}` : ''}
-                </div>
-                <div className="meta">
-                  {t.date}
-                  {t.note ? ` · ${t.note}` : ''}
-                </div>
-              </div>
-              <div className="row-between">
-                <span className="amt out">{fmtMoney(t.amount)}</span>
-                <button className="ghost" onPointerDown={stop} onClick={() => delTx.mutate(t.id)}>
-                  ✕
-                </button>
-              </div>
-            </div>
-          ))
+          rows.map((t) => <SpendTxRow key={t.id} t={t} cats={categories.data?.expense ?? []} />)
         ) : (
           <div className="muted">本月暂无流水</div>
         )}
@@ -344,5 +330,70 @@ function FundDetail({
         {msg && <div className="muted mt">{msg}</div>}
       </div>
     </>
+  );
+}
+
+// 消费流水一行：点击展开，可改日期/类型/金额/备注，或删除
+function SpendTxRow({ t, cats }: { t: Transaction; cats: string[] }) {
+  const update = useUpdateTransaction();
+  const del = useDeleteTransaction();
+  const [open, setOpen] = useState(false);
+  const [date, setDate] = useState(t.date);
+  const [category, setCategory] = useState(t.category ?? '');
+  const [amount, setAmount] = useState(String(Math.abs(Number(t.amount))));
+  const [note, setNote] = useState(t.note ?? '');
+
+  const save = async () => {
+    await update.mutateAsync({ id: t.id, date, category: category || undefined, amount, note });
+    setOpen(false);
+  };
+
+  if (!open) {
+    return (
+      <div className="tx" onPointerDown={stop} onClick={() => setOpen(true)} style={{ cursor: 'pointer' }}>
+        <div>
+          <div>支出{t.category ? ` · ${t.category}` : ''}</div>
+          <div className="meta">
+            {t.date}
+            {t.note ? ` · ${t.note}` : ''}
+          </div>
+        </div>
+        <span className="amt out">{fmtMoney(t.amount)}</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="card" onPointerDown={stop} style={{ margin: '8px 0' }}>
+      <div className="field">
+        <label>日期</label>
+        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+      </div>
+      <div className="field">
+        <label>类型</label>
+        <div className="chips">
+          {cats.map((c) => (
+            <button key={c} className={`chip${category === c ? ' active' : ''}`} onClick={() => setCategory(c)}>
+              {c}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="row-between" style={{ gap: 8 }}>
+        <input type="number" step="0.01" placeholder="金额" value={amount} onChange={(e) => setAmount(e.target.value)} />
+        <input placeholder="备注" value={note} onChange={(e) => setNote(e.target.value)} style={{ flex: 1 }} />
+      </div>
+      <div className="card-row-actions mt">
+        <button className="mini" onClick={() => setOpen(false)}>
+          取消
+        </button>
+        <button className="mini" onClick={save} disabled={update.isPending}>
+          保存
+        </button>
+        <button className="mini danger" onClick={() => del.mutate(t.id)}>
+          删除
+        </button>
+      </div>
+    </div>
   );
 }
