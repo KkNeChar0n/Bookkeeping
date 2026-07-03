@@ -140,4 +140,40 @@ export const backupService = {
     const data = JSON.parse(text) as BackupData;
     return this.importAll(data);
   },
+
+  /** 清空全部数据，但保留基金卡及其本金/市值（收支类型也保留） */
+  async clearAllExceptFund(): Promise<void> {
+    await db.transaction(
+      'rw',
+      [
+        db.cards,
+        db.budgetSnapshots,
+        db.budgetLines,
+        db.transactions,
+        db.budgetDetails,
+        db.savingsActuals,
+        db.spendQuotas,
+        db.savingsEntries,
+        db.savingsLogs,
+        db.consumptionBudgets,
+      ],
+      async () => {
+        const nonFund = (await db.cards.toArray())
+          .filter((c) => c.type !== 'FUND')
+          .map((c) => c.id);
+        await Promise.all([
+          db.cards.bulkDelete(nonFund),
+          db.budgetSnapshots.clear(),
+          db.budgetLines.clear(),
+          db.transactions.clear(),
+          db.budgetDetails.clear(),
+          db.savingsActuals.clear(),
+          db.spendQuotas.clear(),
+          db.savingsEntries.clear(),
+          db.savingsLogs.clear(),
+          db.consumptionBudgets.clear(),
+        ]);
+      },
+    );
+  },
 };

@@ -30,6 +30,19 @@ export function BackupPanel() {
     }
   };
 
+  const doClear = async () => {
+    if (!window.confirm('将删除全部储蓄卡、消费卡、流水、预算、消费预算、修改日志——只保留基金卡。此操作不可撤销，确定？')) return;
+    if (!window.confirm('再确认一次：真的清空吗？建议先「导出备份」。')) return;
+    setMsg('');
+    try {
+      await backupService.clearAllExceptFund();
+      qc.invalidateQueries();
+      setMsg('已清空（基金卡已保留）');
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : '清空失败');
+    }
+  };
+
   return (
     <>
       <div className="section-title">数据备份</div>
@@ -57,6 +70,16 @@ export function BackupPanel() {
           }}
         />
         {msg && <div className="muted mt">{msg}</div>}
+      </div>
+
+      <div className="section-title">危险操作</div>
+      <div className="card">
+        <div className="muted" style={{ marginBottom: 10 }}>
+          清空全部数据、从头开始（基金卡会保留）。清空前建议先导出备份。
+        </div>
+        <button className="danger" style={{ width: '100%' }} onClick={doClear}>
+          清空全部数据（保留基金）
+        </button>
       </div>
     </>
   );
