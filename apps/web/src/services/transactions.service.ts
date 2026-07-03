@@ -41,6 +41,26 @@ export const txService = {
     return Promise.all(rows.map(toDTO));
   },
 
+  /** 修改一笔流水（日期/类型/金额/备注）；金额按 type 保持符号 */
+  async update(
+    id: string,
+    input: { amount?: string; category?: string; note?: string; date?: string },
+  ): Promise<Transaction> {
+    const existing = await db.transactions.get(id);
+    if (!existing) throw new Error('流水不存在');
+    const patch: Partial<TransactionRow> = {};
+    if (input.amount !== undefined) {
+      const abs = toCents(input.amount);
+      if (abs <= 0) throw new Error('金额必须为正');
+      patch.amount = existing.type === 'OUT' ? -abs : existing.type === 'IN' ? abs : existing.amount;
+    }
+    if (input.category !== undefined) patch.category = input.category || null;
+    if (input.note !== undefined) patch.note = input.note || null;
+    if (input.date !== undefined) patch.date = normDate(input.date);
+    await db.transactions.update(id, patch);
+    return toDTO({ ...existing, ...patch });
+  },
+
   async createEntry(input: {
     cardId: string;
     type: 'IN' | 'OUT';
