@@ -46,6 +46,7 @@ body {
 .app {
   flex: 1;
   min-height: 0;
+  overflow-x: hidden; /* 否则 overflow-y:auto 会把 x 也算成 auto，冒出横向滚动条抢手势 */
   overflow-y: auto;
   padding: calc(20px + env(safe-area-inset-top)) 16px 24px;
 }
@@ -686,6 +687,7 @@ td:first-child {
 .detail-flow {
   flex: 1;
   min-height: 0;
+  overflow-x: hidden;
   overflow-y: auto;
   touch-action: pan-y; /* 竖滑走原生滚动，横滑留给切月手势，互不打架 */
   scrollbar-width: none; /* Firefox：隐藏滚动条 */
