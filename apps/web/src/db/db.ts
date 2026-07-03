@@ -82,6 +82,16 @@ export interface SavingsEntryRow {
   createdAt: number;
 }
 
+// 储蓄卡修改流水（审计日志）：每次把某项改成某值都留一条，带时间戳
+export interface SavingsLogRow {
+  id: string;
+  cardId: string;
+  month: string; // YYYY-MM
+  field: 'AMOUNT' | 'INCOME' | 'EXCESS';
+  amount: number; // cents（改成的新值）
+  createdAt: number; // 时间戳
+}
+
 // 消费卡每月额度
 export interface SpendQuotaRow {
   id: string;
@@ -110,6 +120,7 @@ export class BookkeepingDB extends Dexie {
   spendQuotas!: Table<SpendQuotaRow, string>;
   categories!: Table<CategoryRow, string>;
   savingsEntries!: Table<SavingsEntryRow, string>;
+  savingsLogs!: Table<SavingsLogRow, string>;
 
   constructor() {
     super('bookkeeping');
@@ -163,6 +174,10 @@ export class BookkeepingDB extends Dexie {
         }
         if (entries.length) await tx.table('savingsEntries').bulkAdd(entries);
       });
+    // v7：储蓄卡修改流水（审计日志）
+    this.version(7).stores({
+      savingsLogs: 'id, cardId, [cardId+month], createdAt',
+    });
   }
 }
 

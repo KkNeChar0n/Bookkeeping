@@ -26,6 +26,13 @@ export function currentMonthStr(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
+/** 时间戳 → '2026-07-03 11:26' */
+export function fmtDateTime(ts: number): string {
+  const d = new Date(ts);
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
 /** 'YYYY-MM-DD' → '26年 12月 12日' */
 export function fmtDateCN(dateStr: string): string {
   const [y, m, d] = dateStr.split('-').map(Number);

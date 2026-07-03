@@ -1,14 +1,18 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
+  useAddSavingsLog,
   useCards,
   useSavingsEntries,
   useSavingsList,
+  useSavingsLogs,
   useSetSavingsAmount,
   useSetSavingsEntry,
 } from '../api/hooks';
 import { CardManageBar } from '../components/CardManageBar';
-import { currentMonthStr, fmtMoney, fmtSigned } from '../lib/format';
+import { currentMonthStr, fmtDateTime, fmtMoney } from '../lib/format';
+
+const FIELD_LABEL = { AMOUNT: '真实储蓄金额', INCOME: '本月收入', EXCESS: '超额支出' } as const;
 
 export function SavingsCardPage() {
   const { id = '' } = useParams();
@@ -17,18 +21,16 @@ export function SavingsCardPage() {
   const list = useSavingsList(id);
   const setAmt = useSetSavingsAmount();
   const setEntry = useSetSavingsEntry();
+  const addLog = useAddSavingsLog();
 
   const card = cards.data?.find((c) => c.id === id);
   const [month, setMonth] = useState(currentMonthStr());
 
   const rows = list.data ?? [];
   const existing = rows.find((r) => r.month === month);
-  const prevRow = rows
-    .filter((r) => r.month < month)
-    .sort((a, b) => b.month.localeCompare(a.month))[0];
-  const delta = existing && prevRow ? Number(existing.amount) - Number(prevRow.amount) : null;
 
   const entries = useSavingsEntries(id, month);
+  const logs = useSavingsLogs(id, month);
   const incomeTotal = (entries.data ?? [])
     .filter((e) => e.kind === 'INCOME')
     .reduce((s, e) => s + Number(e.amount), 0);
@@ -49,18 +51,33 @@ export function SavingsCardPage() {
     setExcess(excessTotal > 0 ? String(excessTotal) : '');
   }, [month, existing?.amount, incomeTotal, excessTotal]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 一个按钮同时提交三个框的改动，然后返回
+  // 一个按钮同时提交三个框的改动；每项若真的变了就留一条带时间戳的流水，然后返回
   const saveAll = async () => {
     setSaving(true);
     try {
-      if (amount) await setAmt.mutateAsync({ cardId: id, month, amount });
-      await setEntry.mutateAsync({ cardId: id, month, kind: 'INCOME', amount: income || '0' });
-      await setEntry.mutateAsync({ cardId: id, month, kind: 'EXCESS', amount: excess || '0' });
+      const amtNew = amount === '' ? null : Number(amount);
+      const amtOld = existing ? Number(existing.amount) : null;
+      if (amtNew !== null && amtNew !== amtOld) {
+        await addLog.mutateAsync({ cardId: id, month, field: 'AMOUNT', amount });
+        await setAmt.mutateAsync({ cardId: id, month, amount });
+      }
+      const incNew = Number(income || 0);
+      if (incNew !== incomeTotal) {
+        await addLog.mutateAsync({ cardId: id, month, field: 'INCOME', amount: income || '0' });
+        await setEntry.mutateAsync({ cardId: id, month, kind: 'INCOME', amount: income || '0' });
+      }
+      const excNew = Number(excess || 0);
+      if (excNew !== excessTotal) {
+        await addLog.mutateAsync({ cardId: id, month, field: 'EXCESS', amount: excess || '0' });
+        await setEntry.mutateAsync({ cardId: id, month, kind: 'EXCESS', amount: excess || '0' });
+      }
       navigate('/savings');
     } finally {
       setSaving(false);
     }
   };
+
+  const logRows = logs.data ?? [];
 
   return (
     <div>
@@ -120,33 +137,26 @@ export function SavingsCardPage() {
         </button>
       </div>
 
-      {/* 本月已保存的记录（只读）：真实储蓄金额 / 本月收入 / 超额支出各改成了啥 */}
-      <div className="section-title">{month} · 本月储蓄记录</div>
+      {/* 本月修改流水（只读）：每次把某项改成某值都留一条，带时间戳，最新在前 */}
+      <div className="section-title">{month} · 修改流水</div>
       <div className="card">
-        {!existing && incomeTotal === 0 && excessTotal === 0 ? (
-          <div className="muted">本月还没有记录</div>
-        ) : (
-          <>
-            <div className="tx">
-              <div>
-                <div>真实储蓄金额</div>
-                {existing && delta !== null && (
-                  <div className="meta">
-                    环比上一记录 <span className={delta >= 0 ? 'pos' : 'neg'}>{fmtSigned(delta)}</span>
-                  </div>
-                )}
+        {logRows.length ? (
+          logRows.map((l) => {
+            const cleared = Number(l.amount) === 0 && l.field !== 'AMOUNT';
+            const cls = l.field === 'INCOME' ? 'in' : l.field === 'EXCESS' ? 'out' : 'neutral';
+            const sign = cleared ? '' : l.field === 'INCOME' ? '+' : l.field === 'EXCESS' ? '−' : '';
+            return (
+              <div className="tx" key={l.id}>
+                <div>
+                  <div>{FIELD_LABEL[l.field]}</div>
+                  <div className="meta">{fmtDateTime(l.createdAt)}</div>
+                </div>
+                <span className={`amt ${cls}`}>{cleared ? '清空' : `${sign}${fmtMoney(l.amount)}`}</span>
               </div>
-              <span className="amt neutral">{existing ? fmtMoney(existing.amount) : '未填'}</span>
-            </div>
-            <div className="tx">
-              <div>本月收入</div>
-              <span className="amt in">{incomeTotal > 0 ? `+${fmtMoney(incomeTotal)}` : '—'}</span>
-            </div>
-            <div className="tx">
-              <div>超额支出</div>
-              <span className="amt out">{excessTotal > 0 ? `−${fmtMoney(excessTotal)}` : '—'}</span>
-            </div>
-          </>
+            );
+          })
+        ) : (
+          <div className="muted">本月还没有修改</div>
         )}
       </div>
 

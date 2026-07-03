@@ -8,6 +8,7 @@ import { cardViewService } from '../services/cardview.service';
 import { budgetPlanService } from '../services/budgetPlan.service';
 import { savingsActualService } from '../services/savingsActual.service';
 import { savingsEntryService } from '../services/savingsEntry.service';
+import { savingsLogService } from '../services/savingsLog.service';
 import { savingsSummaryService } from '../services/savingsSummary.service';
 import { spendService } from '../services/spend.service';
 import { spendStatsService } from '../services/spendStats.service';
@@ -270,6 +271,21 @@ export function useSetSavingsEntry() {
   return useMutation({
     mutationFn: (body: { cardId: string; month: string; kind: 'INCOME' | 'EXCESS'; amount: string }) =>
       savingsEntryService.setEntry(body),
+    onSuccess: inv,
+  });
+}
+export function useSavingsLogs(cardId: string, month: string) {
+  return useQuery({
+    queryKey: ['savings', 'logs', cardId, month],
+    queryFn: () => savingsLogService.list(cardId, month),
+    enabled: !!cardId,
+  });
+}
+export function useAddSavingsLog() {
+  const inv = useInvalidateLedger();
+  return useMutation({
+    mutationFn: (body: { cardId: string; month: string; field: 'AMOUNT' | 'INCOME' | 'EXCESS'; amount: string }) =>
+      savingsLogService.add(body),
     onSuccess: inv,
   });
 }
