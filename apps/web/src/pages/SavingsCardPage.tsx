@@ -4,6 +4,7 @@ import {
   useAddSavingsLog,
   useBufferBefore,
   useCards,
+  useClearSavingsMonth,
   useConsumptionBudgets,
   useSavingsEntries,
   useSavingsList,
@@ -26,6 +27,7 @@ export function SavingsCardPage() {
   const setEntry = useSetSavingsEntry();
   const addLog = useAddSavingsLog();
   const setCBudget = useSetConsumptionBudget();
+  const clearMonth = useClearSavingsMonth();
 
   const card = cards.data?.find((c) => c.id === id);
   const [month, setMonth] = useState(currentMonthStr());
@@ -197,6 +199,17 @@ export function SavingsCardPage() {
 
         <button className="primary" onClick={saveAll} disabled={saving}>
           保存并返回
+        </button>
+        <button
+          className="danger"
+          style={{ width: '100%', marginTop: 8 }}
+          onClick={async () => {
+            if (!window.confirm(`清除 ${month} 的全部数据（真实金额、收入、超额支出、消费预算、修改流水），恢复到初始状态？`)) return;
+            await clearMonth.mutateAsync({ cardId: id, month });
+          }}
+          disabled={clearMonth.isPending}
+        >
+          清除本月数据
         </button>
       </div>
 

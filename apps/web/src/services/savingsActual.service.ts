@@ -47,6 +47,21 @@ export const savingsActualService = {
     await db.savingsActuals.delete(id);
   },
 
+  /** 清除某储蓄卡某月的全部数据，恢复到初始状态
+   *  （真实金额 / 本月收入 / 超额支出 / 本月消费预算 / 修改流水） */
+  async clearMonth(cardId: string, month: string): Promise<void> {
+    await db.transaction(
+      'rw',
+      [db.savingsActuals, db.savingsEntries, db.savingsLogs, db.consumptionBudgets],
+      async () => {
+        await db.savingsActuals.where('[cardId+month]').equals([cardId, month]).delete();
+        await db.savingsEntries.where('[cardId+month]').equals([cardId, month]).delete();
+        await db.savingsLogs.where('[cardId+month]').equals([cardId, month]).delete();
+        await db.consumptionBudgets.where('[savingsCardId+month]').equals([cardId, month]).delete();
+      },
+    );
+  },
+
   /** 最新一个月的真实储蓄额 */
   async latest(cardId: string): Promise<{ month: string; amount: Cents } | null> {
     const rows = await db.savingsActuals.where('cardId').equals(cardId).toArray();

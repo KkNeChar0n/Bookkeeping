@@ -318,6 +318,14 @@ export function useRemoveSavings() {
   const inv = useInvalidateLedger();
   return useMutation({ mutationFn: (id: string) => savingsActualService.remove(id), onSuccess: inv });
 }
+export function useClearSavingsMonth() {
+  const inv = useInvalidateLedger();
+  return useMutation({
+    mutationFn: (body: { cardId: string; month: string }) =>
+      savingsActualService.clearMonth(body.cardId, body.month),
+    onSuccess: inv,
+  });
+}
 export function useSavingsSummary() {
   return useQuery({ queryKey: ['savings', 'summary'], queryFn: () => savingsSummaryService.list() });
 }
