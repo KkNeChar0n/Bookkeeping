@@ -265,6 +265,14 @@ export function useRemoveSavingsEntry() {
   const inv = useInvalidateLedger();
   return useMutation({ mutationFn: (id: string) => savingsEntryService.remove(id), onSuccess: inv });
 }
+export function useSetSavingsEntry() {
+  const inv = useInvalidateLedger();
+  return useMutation({
+    mutationFn: (body: { cardId: string; month: string; kind: 'INCOME' | 'EXCESS'; amount: string }) =>
+      savingsEntryService.setEntry(body),
+    onSuccess: inv,
+  });
+}
 export function useRemoveSavings() {
   const inv = useInvalidateLedger();
   return useMutation({ mutationFn: (id: string) => savingsActualService.remove(id), onSuccess: inv });

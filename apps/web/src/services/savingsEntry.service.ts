@@ -43,6 +43,33 @@ export const savingsEntryService = {
     await db.savingsEntries.delete(id);
   },
 
+  /** 覆盖式设置某卡某月某类型的金额（清掉该月该类型旧条目，按新值写一条；金额≤0则清空） */
+  async setEntry(input: {
+    cardId: string;
+    month: string;
+    kind: SavingsEntryKind;
+    amount: string;
+  }): Promise<void> {
+    const rows = await db.savingsEntries
+      .where('[cardId+month]')
+      .equals([input.cardId, input.month])
+      .toArray();
+    const stale = rows.filter((r) => r.kind === input.kind).map((r) => r.id);
+    if (stale.length) await db.savingsEntries.bulkDelete(stale);
+    const amt = toCents(input.amount || '0');
+    if (amt > 0) {
+      await db.savingsEntries.add({
+        id: newId(),
+        cardId: input.cardId,
+        month: input.month,
+        kind: input.kind,
+        amount: amt,
+        note: undefined,
+        createdAt: nowTs(),
+      });
+    }
+  },
+
   /** 某周期(prefix)的实际收入合计（所有储蓄卡） */
   async actualIncome(prefix: string): Promise<Cents> {
     const rows = await db.savingsEntries.where('kind').equals('INCOME').toArray();
