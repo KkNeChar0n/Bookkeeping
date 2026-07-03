@@ -272,18 +272,22 @@ function FundDetail({
   const setFund = useSetFund();
   const [msg, setMsg] = useState('');
   const view = views.data?.find((v) => v.cardId === cardId);
-  const [principal, setPrincipal] = useState('');
-  const [value, setValue] = useState('');
+  const [principal, setPrincipal] = useState(initialPrincipal);
+  const [value, setValue] = useState(initialValue);
+
+  // 回显当前本金/市值，可直接改
+  useEffect(() => {
+    setPrincipal(initialPrincipal);
+    setValue(initialValue);
+  }, [initialPrincipal, initialValue]);
 
   const save = async () => {
     setMsg('');
     const body: { id: string; principal?: string; value?: string } = { id: cardId };
-    if (principal) body.principal = principal;
-    if (value) body.value = value;
+    if (principal !== '') body.principal = principal;
+    if (value !== '') body.value = value;
     if (!body.principal && !body.value) return;
     await setFund.mutateAsync(body);
-    setPrincipal('');
-    setValue('');
     setMsg('已更新');
   };
 
@@ -308,12 +312,12 @@ function FundDetail({
       <div className="section-title">更新（从基金 App 抄这两个数）</div>
       <div className="card">
         <div className="field">
-          <label>累计投入 · 本金（当前 {fmtMoney(initialPrincipal)}）</label>
-          <input type="number" step="0.01" placeholder="不改可留空" value={principal} onChange={(e) => setPrincipal(e.target.value)} />
+          <label>累计投入 · 本金</label>
+          <input type="number" step="0.01" value={principal} onChange={(e) => setPrincipal(e.target.value)} />
         </div>
         <div className="field">
-          <label>当前市值（当前 {fmtMoney(initialValue)}）</label>
-          <input type="number" step="0.01" placeholder="不改可留空" value={value} onChange={(e) => setValue(e.target.value)} />
+          <label>当前市值</label>
+          <input type="number" step="0.01" value={value} onChange={(e) => setValue(e.target.value)} />
         </div>
         <button className="primary" onClick={save} disabled={!principal && !value}>
           保存
