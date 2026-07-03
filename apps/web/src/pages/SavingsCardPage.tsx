@@ -18,24 +18,53 @@ export function SavingsCardPage() {
   const cards = useCards();
   const list = useSavingsList(id);
   const setAmt = useSetSavingsAmount();
+  const addEntry = useAddSavingsEntry();
+  const removeEntry = useRemoveSavingsEntry();
   const del = useRemoveSavings();
 
   const card = cards.data?.find((c) => c.id === id);
   const [month, setMonth] = useState(currentMonthStr());
-  const [amount, setAmount] = useState('');
 
   const rows = list.data ?? [];
   const existing = rows.find((r) => r.month === month);
-  const entries = useSavingsEntries(id, month);
+  const prevRow = rows
+    .filter((r) => r.month < month)
+    .sort((a, b) => b.month.localeCompare(a.month))[0];
+  const delta = existing && prevRow ? Number(existing.amount) - Number(prevRow.amount) : null;
 
+  const entries = useSavingsEntries(id, month);
+  const incomeEntries = (entries.data ?? []).filter((e) => e.kind === 'INCOME');
+  const excessEntries = (entries.data ?? []).filter((e) => e.kind === 'EXCESS');
+
+  // 表单
+  const [amount, setAmount] = useState('');
+  const [incAmt, setIncAmt] = useState('');
+  const [incNote, setIncNote] = useState('');
+  const [excAmt, setExcAmt] = useState('');
+  const [excNote, setExcNote] = useState('');
+  const [msg, setMsg] = useState('');
+
+  // 切月/重新进入时，回显该月真实储蓄金额
   useEffect(() => {
     setAmount(existing ? existing.amount : '');
+    setMsg('');
   }, [month, existing?.amount]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const submit = async () => {
-    if (!amount) return;
-    await setAmt.mutateAsync({ cardId: id, month, amount });
+  const saveAll = async () => {
+    setMsg('');
+    if (!amount && !incAmt && !excAmt) return;
+    if (amount) await setAmt.mutateAsync({ cardId: id, month, amount });
+    if (incAmt) await addEntry.mutateAsync({ cardId: id, month, kind: 'INCOME', amount: incAmt, note: incNote || undefined });
+    if (excAmt) await addEntry.mutateAsync({ cardId: id, month, kind: 'EXCESS', amount: excAmt, note: excNote || undefined });
+    setIncAmt('');
+    setIncNote('');
+    setExcAmt('');
+    setExcNote('');
+    setMsg('已保存');
   };
+
+  const saving = setAmt.isPending || addEntry.isPending;
+  const nothingThisMonth = !existing && incomeEntries.length === 0 && excessEntries.length === 0;
 
   return (
     <div>
@@ -50,125 +79,108 @@ export function SavingsCardPage() {
         <span style={{ width: 40 }} />
       </div>
 
+      {/* 一个大卡片：月份 + 真实储蓄金额 + 本月收入 + 超额支出 + 一个保存按钮 */}
       <div className="card">
-        <div className="field" style={{ margin: 0 }}>
+        <div className="field">
           <label>月份</label>
           <input type="month" value={month} onChange={(e) => setMonth(e.target.value)} />
         </div>
-      </div>
 
-      <div className="section-title">{month} · 真实储蓄金额{existing ? '（覆盖已有）' : ''}</div>
-      <div className="card">
-        <div className="row-between" style={{ gap: 8 }}>
-          <input type="number" step="0.01" placeholder="填写真实储蓄金额" value={amount} onChange={(e) => setAmount(e.target.value)} />
-          <button
-            className="primary"
-            style={{ width: 'auto', padding: '11px 18px', whiteSpace: 'nowrap' }}
-            onClick={submit}
-            disabled={!amount || setAmt.isPending}
-          >
-            保存
-          </button>
+        <div className="field">
+          <label>真实储蓄金额{existing ? '（当前 ' + fmtMoney(existing.amount) + '）' : ''}</label>
+          <input
+            type="number"
+            step="0.01"
+            placeholder="填写真实储蓄金额"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+          />
         </div>
+
+        <div className="field">
+          <label>本月收入（可留空，可多次保存追加）</label>
+          <div className="row-between" style={{ gap: 8 }}>
+            <input type="number" step="0.01" placeholder="金额" value={incAmt} onChange={(e) => setIncAmt(e.target.value)} />
+            <input placeholder="备注(可选)" value={incNote} onChange={(e) => setIncNote(e.target.value)} style={{ flex: 1 }} />
+          </div>
+        </div>
+
+        <div className="field">
+          <label>超额支出 · 额外充给消费卡的钱（可留空，可多次追加）</label>
+          <div className="row-between" style={{ gap: 8 }}>
+            <input type="number" step="0.01" placeholder="金额" value={excAmt} onChange={(e) => setExcAmt(e.target.value)} />
+            <input placeholder="备注(可选)" value={excNote} onChange={(e) => setExcNote(e.target.value)} style={{ flex: 1 }} />
+          </div>
+        </div>
+
+        <button
+          className="primary"
+          onClick={saveAll}
+          disabled={saving || (!amount && !incAmt && !excAmt)}
+        >
+          保存
+        </button>
+        {msg && <div className="muted mt">{msg}</div>}
       </div>
 
-      <EntrySection cardId={id} month={month} kind="INCOME" title="本月收入" data={entries.data ?? []} />
-      <EntrySection cardId={id} month={month} kind="EXCESS" title="超额支出（额外充给消费卡的钱）" data={entries.data ?? []} />
-
-      {/* 历史储蓄余额 */}
-      {rows.length > 0 && (
-        <>
-          <div className="section-title">各月储蓄余额</div>
-          <div className="card">
-            {rows.map((r, i) => {
-              const prev = rows[i + 1];
-              const delta = prev ? Number(r.amount) - Number(prev.amount) : null;
-              return (
-                <div className="tx" key={r.id}>
-                  <div onClick={() => setMonth(r.month)} style={{ cursor: 'pointer', flex: 1 }}>
-                    <div>{r.month}</div>
-                    {delta !== null && (
-                      <div className="meta">
-                        环比 <span className={delta >= 0 ? 'pos' : 'neg'}>{fmtSigned(delta)}</span>
-                      </div>
-                    )}
-                  </div>
-                  <div className="row-between">
-                    <span className="amt neutral">{fmtMoney(r.amount)}</span>
-                    <button className="ghost" onClick={() => del.mutate(r.id)}>
-                      ✕
-                    </button>
-                  </div>
+      {/* 本月相关的所有储蓄修改 */}
+      <div className="section-title">{month} · 本月储蓄相关修改</div>
+      <div className="card">
+        {nothingThisMonth ? (
+          <div className="muted">本月还没有修改</div>
+        ) : (
+          <>
+            {existing && (
+              <div className="tx">
+                <div>
+                  <div>真实储蓄金额</div>
+                  {delta !== null && (
+                    <div className="meta">
+                      环比上一记录 <span className={delta >= 0 ? 'pos' : 'neg'}>{fmtSigned(delta)}</span>
+                    </div>
+                  )}
                 </div>
-              );
-            })}
-          </div>
-        </>
-      )}
+                <div className="row-between">
+                  <span className="amt neutral">{fmtMoney(existing.amount)}</span>
+                  <button className="ghost" onClick={() => del.mutate(existing.id)}>
+                    ✕
+                  </button>
+                </div>
+              </div>
+            )}
+            {incomeEntries.map((e) => (
+              <div className="tx" key={e.id}>
+                <div>
+                  <div>收入{e.note ? ` · ${e.note}` : ''}</div>
+                </div>
+                <div className="row-between">
+                  <span className="amt in">+{fmtMoney(e.amount)}</span>
+                  <button className="ghost" onClick={() => removeEntry.mutate(e.id)}>
+                    ✕
+                  </button>
+                </div>
+              </div>
+            ))}
+            {excessEntries.map((e) => (
+              <div className="tx" key={e.id}>
+                <div>
+                  <div>超额支出{e.note ? ` · ${e.note}` : ''}</div>
+                </div>
+                <div className="row-between">
+                  <span className="amt out">−{fmtMoney(e.amount)}</span>
+                  <button className="ghost" onClick={() => removeEntry.mutate(e.id)}>
+                    ✕
+                  </button>
+                </div>
+              </div>
+            ))}
+          </>
+        )}
+      </div>
 
       {card && (
         <CardManageBar cardId={id} name={card.name} initialBalance={card.initialBalance} showInitial onDeleted={() => navigate('/savings')} />
       )}
     </div>
-  );
-}
-
-function EntrySection({
-  cardId,
-  month,
-  kind,
-  title,
-  data,
-}: {
-  cardId: string;
-  month: string;
-  kind: 'INCOME' | 'EXCESS';
-  title: string;
-  data: { id: string; kind: string; amount: string; note: string | null }[];
-}) {
-  const add = useAddSavingsEntry();
-  const remove = useRemoveSavingsEntry();
-  const [amount, setAmount] = useState('');
-  const [note, setNote] = useState('');
-  const rows = data.filter((d) => d.kind === kind);
-  const total = rows.reduce((s, r) => s + Number(r.amount), 0);
-
-  const submit = async () => {
-    if (!amount) return;
-    await add.mutateAsync({ cardId, month, kind, amount, note: note || undefined });
-    setAmount('');
-    setNote('');
-  };
-
-  return (
-    <>
-      <div className="section-title">
-        {title} · 合计 {fmtMoney(total)}
-      </div>
-      <div className="card">
-        {rows.length ? (
-          rows.map((r) => (
-            <div className="tx" key={r.id}>
-              <div>
-                <div>{fmtMoney(r.amount)}</div>
-                {r.note ? <div className="meta">{r.note}</div> : null}
-              </div>
-              <button className="ghost" onClick={() => remove.mutate(r.id)}>
-                ✕
-              </button>
-            </div>
-          ))
-        ) : (
-          <div className="muted">还没有记录</div>
-        )}
-        <div className="row-between mt" style={{ gap: 8 }}>
-          <input type="number" step="0.01" placeholder="金额" value={amount} onChange={(e) => setAmount(e.target.value)} />
-          <input placeholder="备注(可选)" value={note} onChange={(e) => setNote(e.target.value)} style={{ flex: 1 }} />
-          <button style={{ width: 'auto', padding: '11px 16px', whiteSpace: 'nowrap' }} onClick={submit} disabled={!amount}>
-            添加
-          </button>
-        </div>
-      </div>
-    </>
   );
 }
