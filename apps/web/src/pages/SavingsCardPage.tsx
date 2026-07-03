@@ -3,8 +3,6 @@ import { useNavigate, useParams } from 'react-router-dom';
 import {
   useAddSavingsEntry,
   useCards,
-  useRemoveSavings,
-  useRemoveSavingsEntry,
   useSavingsEntries,
   useSavingsList,
   useSetSavingsAmount,
@@ -19,8 +17,6 @@ export function SavingsCardPage() {
   const list = useSavingsList(id);
   const setAmt = useSetSavingsAmount();
   const addEntry = useAddSavingsEntry();
-  const removeEntry = useRemoveSavingsEntry();
-  const del = useRemoveSavings();
 
   const card = cards.data?.find((c) => c.id === id);
   const [month, setMonth] = useState(currentMonthStr());
@@ -38,33 +34,36 @@ export function SavingsCardPage() {
 
   const [amount, setAmount] = useState('');
   const [incAmt, setIncAmt] = useState('');
-  const [incNote, setIncNote] = useState('');
   const [excAmt, setExcAmt] = useState('');
-  const [excNote, setExcNote] = useState('');
-  const [msg, setMsg] = useState('');
+  const [saving, setSaving] = useState(false);
 
   // 切月/重新进入时，回显该月真实储蓄金额
   useEffect(() => {
     setAmount(existing ? existing.amount : '');
-    setMsg('');
   }, [month, existing?.amount]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const saveAmount = async () => {
-    if (!amount) return;
-    await setAmt.mutateAsync({ cardId: id, month, amount });
-    setMsg('已保存真实储蓄金额');
-  };
   const addIncome = async () => {
     if (!incAmt) return;
-    await addEntry.mutateAsync({ cardId: id, month, kind: 'INCOME', amount: incAmt, note: incNote || undefined });
+    await addEntry.mutateAsync({ cardId: id, month, kind: 'INCOME', amount: incAmt });
     setIncAmt('');
-    setIncNote('');
   };
   const addExcess = async () => {
     if (!excAmt) return;
-    await addEntry.mutateAsync({ cardId: id, month, kind: 'EXCESS', amount: excAmt, note: excNote || undefined });
+    await addEntry.mutateAsync({ cardId: id, month, kind: 'EXCESS', amount: excAmt });
     setExcAmt('');
-    setExcNote('');
+  };
+
+  // 整页保存：真实金额 + 尚未点“添加”的收入/超额支出，一起提交，然后返回
+  const saveAll = async () => {
+    setSaving(true);
+    try {
+      if (amount) await setAmt.mutateAsync({ cardId: id, month, amount });
+      if (incAmt) await addEntry.mutateAsync({ cardId: id, month, kind: 'INCOME', amount: incAmt });
+      if (excAmt) await addEntry.mutateAsync({ cardId: id, month, kind: 'EXCESS', amount: excAmt });
+      navigate('/savings');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const nothingThisMonth = !existing && incomeEntries.length === 0 && excessEntries.length === 0;
@@ -82,7 +81,7 @@ export function SavingsCardPage() {
         <span style={{ width: 40 }} />
       </div>
 
-      {/* 一个大卡片：月份 + 真实储蓄金额(保存) + 本月收入(添加) + 超额支出(添加) */}
+      {/* 一个大卡片：月份 + 真实储蓄金额 + 本月收入(添加) + 超额支出(添加) */}
       <div className="card">
         <div className="field">
           <label>月份</label>
@@ -91,24 +90,13 @@ export function SavingsCardPage() {
 
         <div className="field">
           <label>真实储蓄金额{existing ? '（当前 ' + fmtMoney(existing.amount) + '）' : ''}</label>
-          <div className="row-between" style={{ gap: 8 }}>
-            <input
-              type="number"
-              step="0.01"
-              placeholder="填写真实储蓄金额"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              style={{ flex: 1, minWidth: 0 }}
-            />
-            <button
-              className="primary"
-              style={{ width: 'auto', padding: '11px 18px', whiteSpace: 'nowrap', flex: 'none' }}
-              onClick={saveAmount}
-              disabled={!amount || setAmt.isPending}
-            >
-              保存
-            </button>
-          </div>
+          <input
+            type="number"
+            step="0.01"
+            placeholder="填写真实储蓄金额"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+          />
         </div>
 
         <div className="divider" />
@@ -116,10 +104,9 @@ export function SavingsCardPage() {
         <div className="field" style={{ margin: 0 }}>
           <label>本月收入（可添加多笔）</label>
           <div className="row-between" style={{ gap: 8 }}>
-            <input type="number" step="0.01" placeholder="金额" value={incAmt} onChange={(e) => setIncAmt(e.target.value)} style={{ width: 110, flex: 'none' }} />
-            <input placeholder="备注(可选)" value={incNote} onChange={(e) => setIncNote(e.target.value)} style={{ flex: 1, minWidth: 0 }} />
+            <input type="number" step="0.01" placeholder="金额" value={incAmt} onChange={(e) => setIncAmt(e.target.value)} style={{ flex: 1, minWidth: 0 }} />
             <button
-              style={{ width: 'auto', padding: '11px 16px', whiteSpace: 'nowrap', flex: 'none' }}
+              style={{ width: 'auto', padding: '11px 18px', whiteSpace: 'nowrap', flex: 'none' }}
               onClick={addIncome}
               disabled={!incAmt || addEntry.isPending}
             >
@@ -133,10 +120,9 @@ export function SavingsCardPage() {
         <div className="field" style={{ margin: 0 }}>
           <label>超额支出 · 额外充给消费卡的钱（可添加多笔）</label>
           <div className="row-between" style={{ gap: 8 }}>
-            <input type="number" step="0.01" placeholder="金额" value={excAmt} onChange={(e) => setExcAmt(e.target.value)} style={{ width: 110, flex: 'none' }} />
-            <input placeholder="备注(可选)" value={excNote} onChange={(e) => setExcNote(e.target.value)} style={{ flex: 1, minWidth: 0 }} />
+            <input type="number" step="0.01" placeholder="金额" value={excAmt} onChange={(e) => setExcAmt(e.target.value)} style={{ flex: 1, minWidth: 0 }} />
             <button
-              style={{ width: 'auto', padding: '11px 16px', whiteSpace: 'nowrap', flex: 'none' }}
+              style={{ width: 'auto', padding: '11px 18px', whiteSpace: 'nowrap', flex: 'none' }}
               onClick={addExcess}
               disabled={!excAmt || addEntry.isPending}
             >
@@ -144,11 +130,9 @@ export function SavingsCardPage() {
             </button>
           </div>
         </div>
-
-        {msg && <div className="muted mt">{msg}</div>}
       </div>
 
-      {/* 本月相关的所有储蓄修改（可逐条删除） */}
+      {/* 本月相关的所有储蓄修改（只读记录） */}
       <div className="section-title">{month} · 本月储蓄相关修改</div>
       <div className="card">
         {nothingThisMonth ? (
@@ -165,43 +149,28 @@ export function SavingsCardPage() {
                     </div>
                   )}
                 </div>
-                <div className="row-between">
-                  <span className="amt neutral">{fmtMoney(existing.amount)}</span>
-                  <button className="ghost del-x" onClick={() => del.mutate(existing.id)} aria-label="删除">
-                    ✕
-                  </button>
-                </div>
+                <span className="amt neutral">{fmtMoney(existing.amount)}</span>
               </div>
             )}
             {incomeEntries.map((e) => (
               <div className="tx" key={e.id}>
-                <div>
-                  <div>收入{e.note ? ` · ${e.note}` : ''}</div>
-                </div>
-                <div className="row-between">
-                  <span className="amt in">+{fmtMoney(e.amount)}</span>
-                  <button className="ghost del-x" onClick={() => removeEntry.mutate(e.id)} aria-label="删除">
-                    ✕
-                  </button>
-                </div>
+                <div>收入{e.note ? ` · ${e.note}` : ''}</div>
+                <span className="amt in">+{fmtMoney(e.amount)}</span>
               </div>
             ))}
             {excessEntries.map((e) => (
               <div className="tx" key={e.id}>
-                <div>
-                  <div>超额支出{e.note ? ` · ${e.note}` : ''}</div>
-                </div>
-                <div className="row-between">
-                  <span className="amt out">−{fmtMoney(e.amount)}</span>
-                  <button className="ghost del-x" onClick={() => removeEntry.mutate(e.id)} aria-label="删除">
-                    ✕
-                  </button>
-                </div>
+                <div>超额支出{e.note ? ` · ${e.note}` : ''}</div>
+                <span className="amt out">−{fmtMoney(e.amount)}</span>
               </div>
             ))}
           </>
         )}
       </div>
+
+      <button className="primary" onClick={saveAll} disabled={saving}>
+        保存并返回
+      </button>
 
       {card && (
         <CardManageBar cardId={id} name={card.name} initialBalance={card.initialBalance} showInitial onDeleted={() => navigate('/savings')} />
