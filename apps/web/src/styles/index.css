@@ -680,6 +680,15 @@ td:first-child {
   min-height: 0;
   overflow-y: auto;
 }
+/* 预算详情左右滑动切月：外层稳定容器（挂手势、裁掉横向溢出），内层卡片做位移 */
+.budget-swipe {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  touch-action: pan-y;
+  display: flex;
+  flex-direction: column;
+}
 .swipe-card.income {
   border-color: var(--green);
 }
