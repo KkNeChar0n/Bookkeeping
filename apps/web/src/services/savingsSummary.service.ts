@@ -39,4 +39,26 @@ export const savingsSummaryService = {
     }
     return rows;
   },
+
+  /** 截至 refMonth 的储蓄实际 vs 预期（受统计日期控制） */
+  async listAsOf(refMonth: string): Promise<SavingsSummaryRow[]> {
+    const savings = (await db.cards.toArray())
+      .filter((c) => c.type === 'SAVINGS')
+      .sort((a, b) => a.sortOrder - b.sortOrder || a.createdAt - b.createdAt);
+
+    const rows: SavingsSummaryRow[] = [];
+    for (const c of savings) {
+      const bal = await savingsActualService.balanceAsOf(c.id, refMonth);
+      const expectedC = await budgetPlanService.expectedBalance(c.id, refMonth);
+      rows.push({
+        cardId: c.id,
+        cardName: c.name,
+        month: bal?.month ?? refMonth,
+        actual: bal ? fromCents(bal.amount) : null,
+        expected: fromCents(expectedC),
+        diff: bal ? fromCents(bal.amount - expectedC) : null,
+      });
+    }
+    return rows;
+  },
 };

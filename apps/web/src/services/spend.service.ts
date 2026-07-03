@@ -102,6 +102,12 @@ export const spendService = {
     });
   },
 
+  /** 截至某月的累计消费额度（=计划消费，对账里当作计划流出资产） */
+  async cumQuotaUpTo(refMonth: string): Promise<Cents> {
+    const quotas = await db.spendQuotas.toArray();
+    return quotas.filter((q) => q.month <= refMonth).reduce((s, q) => s + q.amount, 0);
+  },
+
   /** 截至某月的累计消费超支（逐月 max(0, 花−额度) 之和） */
   async cumOverspendUpTo(refMonth: string): Promise<Cents> {
     const [txs, quotas] = await Promise.all([db.transactions.toArray(), db.spendQuotas.toArray()]);

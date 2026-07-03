@@ -55,9 +55,11 @@ export const reconciliationService = {
     const fundProfit = fundValue - fundPrincipal;
 
     const overspend = await spendService.cumOverspendUpTo(ref);
+    const plannedConsumption = await spendService.cumQuotaUpTo(ref); // 计划消费=累计额度
     const incomeDiff = cumActualIncome - cumExpectedIncome;
 
-    const budgetTotal = savingsExpected + fundPrincipal;
+    // 计划消费(额度)本就打算离开资产，从预算总资产扣掉；无需手记支出
+    const budgetTotal = savingsExpected + fundPrincipal - plannedConsumption;
     const actualTotal = savingsActual + fundValue;
     const diff = actualTotal - budgetTotal;
     // 差额 = 基金盈亏 − 消费超支 + 收入差额 + 利息

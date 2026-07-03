@@ -229,6 +229,12 @@ export function useRemoveSavings() {
 export function useSavingsSummary() {
   return useQuery({ queryKey: ['savings', 'summary'], queryFn: () => savingsSummaryService.list() });
 }
+export function useSavingsSummaryAsOf(refMonth: string) {
+  return useQuery({
+    queryKey: ['savings', 'summary', refMonth],
+    queryFn: () => savingsSummaryService.listAsOf(refMonth),
+  });
+}
 
 // ---- 消费卡按月额度 ----
 export function useSpendMonth(month: string) {

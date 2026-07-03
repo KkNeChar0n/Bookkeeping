@@ -17,7 +17,7 @@ export function DailyPage() {
   );
 
   return (
-    <div>
+    <div className="day-page">
       <div className="row-between" style={{ marginBottom: 2 }}>
         {date !== todayStr() ? (
           <button className="today-btn" onClick={() => setDate(todayStr())}>
