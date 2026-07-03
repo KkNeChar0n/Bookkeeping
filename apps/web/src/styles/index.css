@@ -687,6 +687,12 @@ td:first-child {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  touch-action: pan-y; /* 竖滑走原生滚动，横滑留给切月手势，互不打架 */
+  scrollbar-width: none; /* Firefox：隐藏滚动条 */
+  -ms-overflow-style: none;
+}
+.detail-flow::-webkit-scrollbar {
+  display: none; /* iOS/Chrome：隐藏滚动条 */
 }
 /* 预算详情左右滑动切月：外层稳定容器（挂手势、裁掉横向溢出），内层卡片做位移 */
 .budget-swipe {
