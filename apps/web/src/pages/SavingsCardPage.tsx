@@ -8,7 +8,7 @@ import {
   useSetSavingsEntry,
 } from '../api/hooks';
 import { CardManageBar } from '../components/CardManageBar';
-import { currentMonthStr, fmtSigned } from '../lib/format';
+import { currentMonthStr, fmtMoney, fmtSigned } from '../lib/format';
 
 export function SavingsCardPage() {
   const { id = '' } = useParams();
@@ -83,15 +83,7 @@ export function SavingsCardPage() {
         </div>
 
         <div className="field">
-          <label>
-            真实储蓄金额
-            {delta !== null && (
-              <>
-                {' '}
-                · 环比 <span className={delta >= 0 ? 'pos' : 'neg'}>{fmtSigned(delta)}</span>
-              </>
-            )}
-          </label>
+          <label>真实储蓄金额</label>
           <input
             type="number"
             step="0.01"
@@ -126,6 +118,36 @@ export function SavingsCardPage() {
         <button className="primary" onClick={saveAll} disabled={saving}>
           保存并返回
         </button>
+      </div>
+
+      {/* 本月已保存的记录（只读）：真实储蓄金额 / 本月收入 / 超额支出各改成了啥 */}
+      <div className="section-title">{month} · 本月储蓄记录</div>
+      <div className="card">
+        {!existing && incomeTotal === 0 && excessTotal === 0 ? (
+          <div className="muted">本月还没有记录</div>
+        ) : (
+          <>
+            <div className="tx">
+              <div>
+                <div>真实储蓄金额</div>
+                {existing && delta !== null && (
+                  <div className="meta">
+                    环比上一记录 <span className={delta >= 0 ? 'pos' : 'neg'}>{fmtSigned(delta)}</span>
+                  </div>
+                )}
+              </div>
+              <span className="amt neutral">{existing ? fmtMoney(existing.amount) : '未填'}</span>
+            </div>
+            <div className="tx">
+              <div>本月收入</div>
+              <span className="amt in">{incomeTotal > 0 ? `+${fmtMoney(incomeTotal)}` : '—'}</span>
+            </div>
+            <div className="tx">
+              <div>超额支出</div>
+              <span className="amt out">{excessTotal > 0 ? `−${fmtMoney(excessTotal)}` : '—'}</span>
+            </div>
+          </>
+        )}
       </div>
 
       {card && (
