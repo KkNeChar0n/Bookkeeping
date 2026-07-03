@@ -161,9 +161,19 @@ export function SummaryPage() {
               <span className={Number(r.fundProfit) >= 0 ? 'pos' : 'neg'}>{fmtSigned(r.fundProfit)}</span>
             </div>
             <div className="brk">
-              <span>超额支出(累计)</span>
+              <span>消费超支(累计)</span>
               <span className={Number(r.overspend) > 0 ? 'neg' : ''}>
                 {Number(r.overspend) > 0 ? `−${fmtMoney(r.overspend)}` : '0.00'}
+              </span>
+            </div>
+            <div className="brk">
+              <span>预充暂存(未花)</span>
+              <span className={Number(r.prepaid) > 0 ? 'neg' : Number(r.prepaid) < 0 ? 'pos' : ''}>
+                {Number(r.prepaid) > 0
+                  ? `−${fmtMoney(r.prepaid)}`
+                  : Number(r.prepaid) < 0
+                    ? `+${fmtMoney(-Number(r.prepaid))}`
+                    : '0.00'}
               </span>
             </div>
             <div className="brk">
@@ -175,7 +185,7 @@ export function SummaryPage() {
               <span className={Number(r.interest) >= 0 ? 'pos' : 'neg'}>{fmtSigned(r.interest)}</span>
             </div>
             <div className="muted mt" style={{ fontSize: 12 }}>
-              超额支出=你在储蓄卡里记的、额外充给消费卡的钱。
+              你挪给消费卡的钱 = 消费超支（已花掉的）+ 预充暂存（还没花的）。预充暂存那部分暂不算超支。
             </div>
             {!r.savingsFilled && (
               <div className="warn mt">部分储蓄卡未填该期真实额，总资产/差额暂不完整。</div>
