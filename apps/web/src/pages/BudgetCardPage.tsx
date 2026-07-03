@@ -100,7 +100,7 @@ export function BudgetCardPage() {
   };
 
   return (
-    <div>
+    <div className="detail-page">
       <div className="detail-header">
         <button className="ghost" onClick={() => navigate('/budget')}>
           ‹ 预算
@@ -178,32 +178,34 @@ export function BudgetCardPage() {
 
         <div className="divider" />
         <div className="detail-sub">本月预算明细</div>
-        {v && v.details.length ? (
-          v.details.map((d) => (
-            <div className="tx" key={d.id}>
-              <div>
-                <div>{d.label}</div>
-                <div className="meta">
-                  {KIND_LABEL[d.kind]}
-                  {d.category && d.category !== d.label ? ` · ${d.category}` : ''}
+        <div className="detail-flow">
+          {v && v.details.length ? (
+            v.details.map((d) => (
+              <div className="tx" key={d.id}>
+                <div>
+                  <div>{d.label}</div>
+                  <div className="meta">
+                    {KIND_LABEL[d.kind]}
+                    {d.category && d.category !== d.label ? ` · ${d.category}` : ''}
+                  </div>
+                </div>
+                <div className="row-between">
+                  <span className={`amt ${d.kind === 'IN' ? 'in' : 'out'}`}>
+                    {d.kind === 'IN' ? '+' : '−'}
+                    {fmtMoney(d.amount)}
+                  </span>
+                  <button className="ghost" onPointerDown={(e) => e.stopPropagation()} onClick={() => delDetail.mutate(d.id)}>
+                    ✕
+                  </button>
                 </div>
               </div>
-              <div className="row-between">
-                <span className={`amt ${d.kind === 'IN' ? 'in' : 'out'}`}>
-                  {d.kind === 'IN' ? '+' : '−'}
-                  {fmtMoney(d.amount)}
-                </span>
-                <button className="ghost" onPointerDown={(e) => e.stopPropagation()} onClick={() => delDetail.mutate(d.id)}>
-                  ✕
-                </button>
-              </div>
-            </div>
-          ))
-        ) : (
-          <div className="muted">本月还没有预算明细</div>
-        )}
+            ))
+          ) : (
+            <div className="muted">本月还没有预算明细</div>
+          )}
+        </div>
 
-        <div className="swipe-hint" style={{ marginTop: 'auto', paddingTop: 14 }}>
+        <div className="swipe-hint" style={{ paddingTop: 14 }}>
           ‹ 右滑上一月 · 左滑下一月 ›
         </div>
       </div>

@@ -138,25 +138,6 @@ export function SummaryPage() {
           <div className="muted">没有储蓄卡</div>
         )}
 
-        {/* 基金 */}
-        <div className="divider" />
-        <div className="detail-sub">基金 · 营收</div>
-        {fund.length ? (
-          fund.map((v) => (
-            <div className="sum-row" key={v.cardId} onClick={() => navigate(`/card/${v.cardId}`)} style={{ cursor: 'pointer' }}>
-              <span>
-                {v.cardName} ›<span className="meta"> 市值{fmtMoney(v.balance)} · 本金{fmtMoney(v.principal)}</span>
-              </span>
-              <b className={Number(v.profit) >= 0 ? 'pos' : 'neg'}>
-                {fmtSigned(v.profit)}
-                {v.profitPct !== null ? `(${v.profitPct > 0 ? '+' : ''}${v.profitPct}%)` : ''}
-              </b>
-            </div>
-          ))
-        ) : (
-          <div className="muted">没有基金</div>
-        )}
-
         {/* 对账 */}
         <div className="divider" />
         <div className="detail-sub">对账 · 总资产（截至 {refMonth}）</div>
@@ -202,6 +183,26 @@ export function SummaryPage() {
           </>
         ) : (
           <div className="muted">暂无数据</div>
+        )}
+      </div>
+
+      {/* 基金：不受时间控制器影响，单独成卡 */}
+      <div className="card">
+        <div className="detail-sub">基金 · 营收（当前值，不分时段）</div>
+        {fund.length ? (
+          fund.map((v) => (
+            <div className="sum-row" key={v.cardId} onClick={() => navigate(`/card/${v.cardId}`)} style={{ cursor: 'pointer' }}>
+              <span>
+                {v.cardName} ›<span className="meta"> 市值{fmtMoney(v.balance)} · 本金{fmtMoney(v.principal)}</span>
+              </span>
+              <b className={Number(v.profit) >= 0 ? 'pos' : 'neg'}>
+                {fmtSigned(v.profit)}
+                {v.profitPct !== null ? `(${v.profitPct > 0 ? '+' : ''}${v.profitPct}%)` : ''}
+              </b>
+            </div>
+          ))
+        ) : (
+          <div className="muted">没有基金</div>
         )}
       </div>
     </div>

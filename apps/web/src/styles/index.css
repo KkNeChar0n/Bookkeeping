@@ -260,6 +260,8 @@ button:disabled {
 /* ---- bottom nav ---- */
 .bottom-nav {
   flex: none;
+  position: relative;
+  z-index: 20; /* 突出的记账圆钮要盖在内容之上 */
   height: calc(var(--nav-h) + env(safe-area-inset-bottom));
   padding-bottom: env(safe-area-inset-bottom);
   background: var(--surface);
@@ -661,11 +663,22 @@ td:first-child {
   /* 松手回弹带一点缓动效果；拖动时组件会临时置为 none 以 1:1 跟手 */
   transition: transform 0.3s cubic-bezier(0.34, 1.4, 0.64, 1), border-color 0.15s;
 }
-/* 详情卡撑到底部 tab 附近，即便没数据 */
-.swipe-card.fill {
-  min-height: calc(100dvh - 210px);
+/* 详情页填满内容区，卡内明细区内部滚动，页面本身不出外部滚动条 */
+.detail-page {
+  height: 100%;
   display: flex;
   flex-direction: column;
+}
+.swipe-card.fill {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.detail-flow {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 .swipe-card.income {
   border-color: var(--green);
