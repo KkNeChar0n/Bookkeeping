@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   useCardViews,
@@ -89,6 +89,7 @@ function SpendDetail({ cardId }: { cardId: string }) {
   const txs = useTransactions({ cardId });
 
   const [quota, setQuotaInput] = useState('');
+  const [openId, setOpenId] = useState<string | null>(null);
   const [armed, setArmed] = useState(false);
   const [drag, setDrag] = useState(0);
   const [amount, setAmount] = useState('');
@@ -173,7 +174,7 @@ function SpendDetail({ cardId }: { cardId: string }) {
 
   const v = view.data;
   const remaining = v ? Number(v.remaining) : 0;
-  const rows = (txs.data ?? []).filter((t) => t.date.slice(0, 7) === month);
+  const rows = (txs.data ?? []).filter((t) => t.date === date);
 
   return (
     <>
@@ -248,12 +249,21 @@ function SpendDetail({ cardId }: { cardId: string }) {
 
         <div className="divider" />
 
-        {/* 流水（点击可改日期/类型） */}
-        <div className="detail-sub">本月流水（点一笔可改）</div>
+        {/* 当日流水（点击可改，同一时间只展开一条） */}
+        <div className="detail-sub">当日流水（{date}，点一笔可改）</div>
         {rows.length ? (
-          rows.map((t) => <SpendTxRow key={t.id} t={t} cats={categories.data?.expense ?? []} />)
+          rows.map((t) => (
+            <SpendTxRow
+              key={t.id}
+              t={t}
+              cats={categories.data?.expense ?? []}
+              open={openId === t.id}
+              onOpen={() => setOpenId(t.id)}
+              onClose={() => setOpenId(null)}
+            />
+          ))
         ) : (
-          <div className="muted">本月暂无流水</div>
+          <div className="muted">当日暂无流水</div>
         )}
       </div>
 
@@ -333,24 +343,46 @@ function FundDetail({
   );
 }
 
-// 消费流水一行：点击展开，可改日期/类型/金额/备注，或删除
-function SpendTxRow({ t, cats }: { t: Transaction; cats: string[] }) {
+// 消费流水一行：点击展开，可改日期/类型/金额/备注，或删除。
+// 展开状态由父级控制 —— 同一时间只允许一条在编辑。
+function SpendTxRow({
+  t,
+  cats,
+  open,
+  onOpen,
+  onClose,
+}: {
+  t: Transaction;
+  cats: string[];
+  open: boolean;
+  onOpen: () => void;
+  onClose: () => void;
+}) {
   const update = useUpdateTransaction();
   const del = useDeleteTransaction();
-  const [open, setOpen] = useState(false);
   const [date, setDate] = useState(t.date);
   const [category, setCategory] = useState(t.category ?? '');
   const [amount, setAmount] = useState(String(Math.abs(Number(t.amount))));
   const [note, setNote] = useState(t.note ?? '');
 
+  // 每次展开都从当前值刷新，等于放弃上一次未保存的修改
+  useEffect(() => {
+    if (open) {
+      setDate(t.date);
+      setCategory(t.category ?? '');
+      setAmount(String(Math.abs(Number(t.amount))));
+      setNote(t.note ?? '');
+    }
+  }, [open, t]);
+
   const save = async () => {
     await update.mutateAsync({ id: t.id, date, category: category || undefined, amount, note });
-    setOpen(false);
+    onClose();
   };
 
   if (!open) {
     return (
-      <div className="tx" onPointerDown={stop} onClick={() => setOpen(true)} style={{ cursor: 'pointer' }}>
+      <div className="tx" onPointerDown={stop} onClick={onOpen} style={{ cursor: 'pointer' }}>
         <div>
           <div>支出{t.category ? ` · ${t.category}` : ''}</div>
           <div className="meta">
@@ -379,12 +411,16 @@ function SpendTxRow({ t, cats }: { t: Transaction; cats: string[] }) {
           ))}
         </div>
       </div>
-      <div className="row-between" style={{ gap: 8 }}>
+      <div className="field">
+        <label>金额</label>
         <input type="number" step="0.01" placeholder="金额" value={amount} onChange={(e) => setAmount(e.target.value)} />
-        <input placeholder="备注" value={note} onChange={(e) => setNote(e.target.value)} style={{ flex: 1 }} />
+      </div>
+      <div className="field">
+        <label>备注</label>
+        <input placeholder="备注（可选）" value={note} onChange={(e) => setNote(e.target.value)} />
       </div>
       <div className="card-row-actions mt">
-        <button className="mini" onClick={() => setOpen(false)}>
+        <button className="mini" onClick={onClose}>
           取消
         </button>
         <button className="mini" onClick={save} disabled={update.isPending}>
