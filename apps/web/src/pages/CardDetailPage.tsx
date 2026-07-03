@@ -8,7 +8,6 @@ import {
   useDeleteCard,
   useDeleteTransaction,
   useSetFund,
-  useSetQuota,
   useSpendCardMonth,
   useTransactions,
   useUpdateCard,
@@ -83,12 +82,10 @@ function SpendDetail({ cardId }: { cardId: string }) {
   const [date, setDate] = useState(params.get('date') || todayStr());
   const month = date.slice(0, 7);
   const view = useSpendCardMonth(cardId, month);
-  const setQuota = useSetQuota();
   const categories = useCategories();
   const createEntry = useCreateEntry();
   const txs = useTransactions({ cardId });
 
-  const [quota, setQuotaInput] = useState('');
   const [openId, setOpenId] = useState<string | null>(null);
   const [armed, setArmed] = useState(false);
   const [drag, setDrag] = useState(0);
@@ -101,13 +98,6 @@ function SpendDetail({ cardId }: { cardId: string }) {
   const gestureRef = useRef(false);
   const submittingRef = useRef(false);
   const THRESH = 70;
-
-  const saveQuota = async () => {
-    if (!quota) return;
-    await setQuota.mutateAsync({ cardId, month, amount: quota });
-    setQuotaInput('');
-    setMsg('额度已保存');
-  };
 
   const reset = () => {
     setArmed(false);
@@ -186,23 +176,14 @@ function SpendDetail({ cardId }: { cardId: string }) {
         onPointerUp={onUp}
         onPointerLeave={onUp}
       >
-        {/* 记账日期 + 额度（可点，不触发滑动） */}
+        {/* 记账日期（可点，不触发滑动）。额度在储蓄卡编辑里设置，这里只读 */}
         <div onPointerDown={stop}>
-          <div className="field">
+          <div className="field" style={{ margin: 0 }}>
             <label>记账日期（记到这一天，额度按当月）</label>
             <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
           </div>
-          <div className="row-between" style={{ gap: 8 }}>
-            <input
-              type="number"
-              step="0.01"
-              placeholder={v?.hasQuota ? `当前额度 ${fmtMoney(v.quota)}` : '设置本月额度'}
-              value={quota}
-              onChange={(e) => setQuotaInput(e.target.value)}
-            />
-            <button style={{ width: 'auto', padding: '11px 16px', whiteSpace: 'nowrap' }} onClick={saveQuota} disabled={!quota}>
-              存额度
-            </button>
+          <div className="muted mt" style={{ fontSize: 12 }}>
+            本月额度 {v?.hasQuota ? fmtMoney(v.quota) : '未设'} · 额度在「储蓄卡 → 本月消费预算」里设置
           </div>
         </div>
 

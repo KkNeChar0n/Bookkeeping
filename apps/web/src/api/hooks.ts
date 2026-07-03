@@ -9,6 +9,7 @@ import { budgetPlanService } from '../services/budgetPlan.service';
 import { savingsActualService } from '../services/savingsActual.service';
 import { savingsEntryService } from '../services/savingsEntry.service';
 import { savingsLogService } from '../services/savingsLog.service';
+import { consumptionBudgetService } from '../services/consumptionBudget.service';
 import { savingsSummaryService } from '../services/savingsSummary.service';
 import { spendService } from '../services/spend.service';
 import { spendStatsService } from '../services/spendStats.service';
@@ -29,6 +30,7 @@ function useInvalidateLedger() {
     qc.invalidateQueries({ queryKey: ['budgetPlan'] });
     qc.invalidateQueries({ queryKey: ['savings'] });
     qc.invalidateQueries({ queryKey: ['spend'] });
+    qc.invalidateQueries({ queryKey: ['consumptionBudget'] });
     qc.invalidateQueries({ queryKey: ['reconciliation'] });
     qc.invalidateQueries({ queryKey: ['incomeCompare'] });
   };
@@ -274,6 +276,29 @@ export function useSetSavingsEntry() {
     onSuccess: inv,
   });
 }
+// ---- 本月消费预算（储蓄卡→消费卡） ----
+export function useConsumptionBudgets(savingsCardId: string, month: string) {
+  return useQuery({
+    queryKey: ['consumptionBudget', savingsCardId, month],
+    queryFn: () => consumptionBudgetService.list(savingsCardId, month),
+    enabled: !!savingsCardId,
+  });
+}
+export function useBufferBefore(month: string) {
+  return useQuery({
+    queryKey: ['consumptionBudget', 'bufferBefore', month],
+    queryFn: () => consumptionBudgetService.bufferBefore(month),
+  });
+}
+export function useSetConsumptionBudget() {
+  const inv = useInvalidateLedger();
+  return useMutation({
+    mutationFn: (body: { savingsCardId: string; consumptionCardId: string; month: string; amount: string }) =>
+      consumptionBudgetService.setBudget(body),
+    onSuccess: inv,
+  });
+}
+
 export function useSavingsLogs(cardId: string, month: string) {
   return useQuery({
     queryKey: ['savings', 'logs', cardId, month],

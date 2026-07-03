@@ -92,12 +92,23 @@ export interface SavingsLogRow {
   createdAt: number; // 时间戳
 }
 
-// 消费卡每月额度
+// 消费卡每月额度（旧：直接在消费卡上填。新流程改由 consumptionBudgets 供给）
 export interface SpendQuotaRow {
   id: string;
   cardId: string;
   month: string; // YYYY-MM
   amount: number; // cents
+  updatedAt: number;
+}
+
+// 本月消费预算：在某张储蓄卡的编辑里，给某张消费卡拨的预算（=该消费卡当月额度来源）
+// 绑定到具体储蓄卡，新转账才对得上那张卡的余额削减
+export interface ConsumptionBudgetRow {
+  id: string;
+  savingsCardId: string; // 出资的储蓄卡
+  consumptionCardId: string; // 供给的消费卡
+  month: string; // YYYY-MM
+  amount: number; // cents（本月消费预算）
   updatedAt: number;
 }
 
@@ -121,6 +132,7 @@ export class BookkeepingDB extends Dexie {
   categories!: Table<CategoryRow, string>;
   savingsEntries!: Table<SavingsEntryRow, string>;
   savingsLogs!: Table<SavingsLogRow, string>;
+  consumptionBudgets!: Table<ConsumptionBudgetRow, string>;
 
   constructor() {
     super('bookkeeping');
@@ -178,6 +190,30 @@ export class BookkeepingDB extends Dexie {
     this.version(7).stores({
       savingsLogs: 'id, cardId, [cardId+month], createdAt',
     });
+    // v8：本月消费预算（储蓄卡→消费卡）。把旧的 spendQuotas 迁移过来，出资卡默认取默认储蓄卡
+    this.version(8)
+      .stores({
+        consumptionBudgets:
+          'id, &[savingsCardId+consumptionCardId+month], [savingsCardId+month], [consumptionCardId+month], month',
+      })
+      .upgrade(async (tx) => {
+        const cards = (await tx.table('cards').toArray()) as CardRow[];
+        const savings = cards.filter((c) => c.type === 'SAVINGS');
+        const funder =
+          savings.find((c) => c.isDefault) ??
+          savings.sort((a, b) => a.sortOrder - b.sortOrder || a.createdAt - b.createdAt)[0];
+        if (!funder) return;
+        const quotas = (await tx.table('spendQuotas').toArray()) as SpendQuotaRow[];
+        const rows: ConsumptionBudgetRow[] = quotas.map((q) => ({
+          id: crypto.randomUUID(),
+          savingsCardId: funder.id,
+          consumptionCardId: q.cardId,
+          month: q.month,
+          amount: q.amount,
+          updatedAt: q.updatedAt,
+        }));
+        if (rows.length) await tx.table('consumptionBudgets').bulkAdd(rows);
+      });
   }
 }
 

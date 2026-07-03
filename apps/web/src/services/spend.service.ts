@@ -1,5 +1,6 @@
 import { db, newId, nowTs, type SpendQuotaRow } from '../db/db';
 import { fromCents, toCents, type Cents } from '../domain/money';
+import { consumptionBudgetService } from './consumptionBudget.service';
 
 export interface SpendMonthView {
   cardId: string;
@@ -31,15 +32,14 @@ export const spendService = {
   /** 某消费卡在某月的额度/已消费/剩余/超支 */
   async monthView(cardId: string, month: string): Promise<SpendMonthView> {
     const card = await db.cards.get(cardId);
-    const q = await quotaOf(cardId, month);
-    const quota = q?.amount ?? 0;
+    const quota = await consumptionBudgetService.quotaFor(cardId, month); // 额度=储蓄卡填的消费预算
     const spent = await spentInMonth(cardId, month);
     return {
       cardId,
       cardName: card?.name ?? '',
       month,
       quota: fromCents(quota),
-      hasQuota: !!q,
+      hasQuota: quota > 0,
       spent: fromCents(spent),
       remaining: fromCents(quota - spent),
       overspent: spent > quota,
@@ -59,7 +59,7 @@ export const spendService = {
     const [cards, txs, quotas] = await Promise.all([
       db.cards.toArray(),
       db.transactions.toArray(),
-      db.spendQuotas.toArray(),
+      db.consumptionBudgets.toArray(),
     ]);
     const spendCards = cards
       .filter((c) => c.type === 'SPEND')
@@ -75,8 +75,8 @@ export const spendService = {
       }
       const quotaByMonth = new Map<string, Cents>();
       for (const q of quotas) {
-        if (q.cardId !== c.id || !q.month.startsWith(prefix)) continue;
-        quotaByMonth.set(q.month, q.amount);
+        if (q.consumptionCardId !== c.id || !q.month.startsWith(prefix)) continue;
+        quotaByMonth.set(q.month, (quotaByMonth.get(q.month) ?? 0) + q.amount);
       }
       let spent = 0;
       let quota = 0;

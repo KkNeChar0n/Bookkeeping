@@ -2,10 +2,13 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   useAddSavingsLog,
+  useBufferBefore,
   useCards,
+  useConsumptionBudgets,
   useSavingsEntries,
   useSavingsList,
   useSavingsLogs,
+  useSetConsumptionBudget,
   useSetSavingsAmount,
   useSetSavingsEntry,
 } from '../api/hooks';
@@ -22,6 +25,7 @@ export function SavingsCardPage() {
   const setAmt = useSetSavingsAmount();
   const setEntry = useSetSavingsEntry();
   const addLog = useAddSavingsLog();
+  const setCBudget = useSetConsumptionBudget();
 
   const card = cards.data?.find((c) => c.id === id);
   const [month, setMonth] = useState(currentMonthStr());
@@ -31,6 +35,10 @@ export function SavingsCardPage() {
 
   const entries = useSavingsEntries(id, month);
   const logs = useSavingsLogs(id, month);
+  const budgets = useConsumptionBudgets(id, month);
+  const bufferBefore = useBufferBefore(month);
+  const budgetList = budgets.data ?? [];
+  const budgetSig = budgetList.map((b) => `${b.consumptionCardId}:${b.amount}`).join(',');
   const incomeTotal = (entries.data ?? [])
     .filter((e) => e.kind === 'INCOME')
     .reduce((s, e) => s + Number(e.amount), 0);
@@ -42,6 +50,7 @@ export function SavingsCardPage() {
   const [amount, setAmount] = useState('');
   const [income, setIncome] = useState('');
   const [excess, setExcess] = useState('');
+  const [budgetInputs, setBudgetInputs] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
 
   // 每次切月/重新进入，回显这三个框当前已保存的值（改了就是覆盖，不是累加）
@@ -50,6 +59,19 @@ export function SavingsCardPage() {
     setIncome(incomeTotal > 0 ? String(incomeTotal) : '');
     setExcess(excessTotal > 0 ? String(excessTotal) : '');
   }, [month, existing?.amount, incomeTotal, excessTotal]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 回显本月消费预算（按消费卡）
+  useEffect(() => {
+    const init: Record<string, string> = {};
+    for (const b of budgetList) init[b.consumptionCardId] = b.amount;
+    setBudgetInputs(init);
+  }, [month, budgetSig]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 结转/新转账预览
+  const totalBudget = Object.values(budgetInputs).reduce((s, v) => s + Number(v || 0), 0);
+  const availBuffer = Number(bufferBefore.data ?? '0');
+  const carry = Math.max(0, Math.min(availBuffer, totalBudget));
+  const newTransfer = totalBudget - carry;
 
   // 一个按钮同时提交三个框的改动；每项若真的变了就留一条带时间戳的流水，然后返回
   const saveAll = async () => {
@@ -70,6 +92,18 @@ export function SavingsCardPage() {
       if (excNew !== excessTotal) {
         await addLog.mutateAsync({ cardId: id, month, field: 'EXCESS', amount: excess || '0' });
         await setEntry.mutateAsync({ cardId: id, month, kind: 'EXCESS', amount: excess || '0' });
+      }
+      // 本月消费预算（按消费卡覆盖式保存）
+      for (const b of budgetList) {
+        const val = budgetInputs[b.consumptionCardId] ?? '';
+        if (Number(val || 0) !== Number(b.amount || 0)) {
+          await setCBudget.mutateAsync({
+            savingsCardId: id,
+            consumptionCardId: b.consumptionCardId,
+            month,
+            amount: val || '0',
+          });
+        }
       }
       navigate('/savings');
     } finally {
@@ -131,6 +165,35 @@ export function SavingsCardPage() {
             onChange={(e) => setExcess(e.target.value)}
           />
         </div>
+
+        {budgetList.length > 0 && (
+          <>
+            <div className="divider" />
+            <div className="field" style={{ margin: 0 }}>
+              <label>本月消费预算（给消费卡拨的额度，消费卡首页只读取这里）</label>
+              {budgetList.map((b) => (
+                <div className="row-between" key={b.consumptionCardId} style={{ gap: 8, marginBottom: 8 }}>
+                  <span className="muted" style={{ flex: 1, minWidth: 0 }}>{b.consumptionCardName}</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    placeholder="0"
+                    value={budgetInputs[b.consumptionCardId] ?? ''}
+                    onChange={(e) =>
+                      setBudgetInputs((s) => ({ ...s, [b.consumptionCardId]: e.target.value }))
+                    }
+                    style={{ width: 140, flex: 'none' }}
+                  />
+                </div>
+              ))}
+              {totalBudget > 0 && (
+                <div className="muted" style={{ fontSize: 12 }}>
+                  预算合计 {fmtMoney(totalBudget)} ＝ 结转(用上月预充) {fmtMoney(carry)} ＋ 新转账(从本卡挪出) {fmtMoney(newTransfer)}
+                </div>
+              )}
+            </div>
+          </>
+        )}
 
         <button className="primary" onClick={saveAll} disabled={saving}>
           保存并返回

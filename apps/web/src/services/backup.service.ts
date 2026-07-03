@@ -5,8 +5,10 @@ import {
   type BudgetSnapshotRow,
   type CardRow,
   type CategoryRow,
+  type ConsumptionBudgetRow,
   type SavingsActualRow,
   type SavingsEntryRow,
+  type SavingsLogRow,
   type SpendQuotaRow,
   type TransactionRow,
 } from '../db/db';
@@ -24,6 +26,8 @@ export interface BackupData {
   spendQuotas?: SpendQuotaRow[];
   categories?: CategoryRow[];
   savingsEntries?: SavingsEntryRow[];
+  savingsLogs?: SavingsLogRow[];
+  consumptionBudgets?: ConsumptionBudgetRow[];
 }
 
 export const backupService = {
@@ -48,9 +52,11 @@ export const backupService = {
       db.categories.toArray(),
     ]);
     const savingsEntries = await db.savingsEntries.toArray();
+    const savingsLogs = await db.savingsLogs.toArray();
+    const consumptionBudgets = await db.consumptionBudgets.toArray();
     return {
       app: 'bookkeeping',
-      version: 2,
+      version: 3,
       exportedAt: new Date().toISOString(),
       cards,
       budgetSnapshots,
@@ -61,6 +67,8 @@ export const backupService = {
       spendQuotas,
       categories,
       savingsEntries,
+      savingsLogs,
+      consumptionBudgets,
     };
   },
 
@@ -94,6 +102,8 @@ export const backupService = {
         db.spendQuotas,
         db.categories,
         db.savingsEntries,
+        db.savingsLogs,
+        db.consumptionBudgets,
       ],
       async () => {
         await Promise.all([
@@ -106,6 +116,8 @@ export const backupService = {
           db.spendQuotas.clear(),
           db.categories.clear(),
           db.savingsEntries.clear(),
+          db.savingsLogs.clear(),
+          db.consumptionBudgets.clear(),
         ]);
         await db.cards.bulkAdd(data.cards);
         await db.budgetSnapshots.bulkAdd(data.budgetSnapshots ?? []);
@@ -116,6 +128,8 @@ export const backupService = {
         await db.spendQuotas.bulkAdd(data.spendQuotas ?? []);
         await db.categories.bulkAdd(data.categories ?? []);
         await db.savingsEntries.bulkAdd(data.savingsEntries ?? []);
+        await db.savingsLogs.bulkAdd(data.savingsLogs ?? []);
+        await db.consumptionBudgets.bulkAdd(data.consumptionBudgets ?? []);
       },
     );
     return { cards: data.cards.length, transactions: (data.transactions ?? []).length };
