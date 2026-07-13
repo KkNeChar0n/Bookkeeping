@@ -122,6 +122,44 @@ export const consumptionBudgetService = {
     return rows.reduce((s, r) => s + r.amount, 0);
   },
 
+  /**
+   * 某周期(prefix)内各消费卡各月分得的「超额支出」。
+   * 超额支出记在储蓄卡上（额外充给消费卡的钱），按该储蓄卡当月对各消费卡的预算占比分摊，
+   * 键为 `consumptionCardId|month`。
+   */
+  async excessMap(prefix: string): Promise<Map<string, Cents>> {
+    const [budgets, excessRows] = await Promise.all([
+      db.consumptionBudgets.toArray(),
+      db.savingsEntries.where('kind').equals('EXCESS').toArray(),
+    ]);
+    // 储蓄卡当月超额支出、当月预算总额
+    const exBySavM = new Map<string, Cents>();
+    for (const e of excessRows)
+      if (e.month.startsWith(prefix))
+        exBySavM.set(`${e.cardId}|${e.month}`, (exBySavM.get(`${e.cardId}|${e.month}`) ?? 0) + e.amount);
+    const totBySavM = new Map<string, Cents>();
+    for (const b of budgets)
+      if (b.month.startsWith(prefix))
+        totBySavM.set(`${b.savingsCardId}|${b.month}`, (totBySavM.get(`${b.savingsCardId}|${b.month}`) ?? 0) + b.amount);
+    const out = new Map<string, Cents>();
+    for (const b of budgets) {
+      if (!b.month.startsWith(prefix)) continue;
+      const ex = exBySavM.get(`${b.savingsCardId}|${b.month}`) ?? 0;
+      const tot = totBySavM.get(`${b.savingsCardId}|${b.month}`) ?? 0;
+      if (ex <= 0 || tot <= 0) continue;
+      const share = Math.round((ex * b.amount) / tot);
+      const k = `${b.consumptionCardId}|${b.month}`;
+      out.set(k, (out.get(k) ?? 0) + share);
+    }
+    return out;
+  },
+
+  /** 某消费卡某月分得的超额支出 */
+  async excessFor(consumptionCardId: string, month: string): Promise<Cents> {
+    const m = await this.excessMap(month);
+    return m.get(`${consumptionCardId}|${month}`) ?? 0;
+  },
+
   /** 进入某月编辑时，可用于结转的期初暂存（=上月末暂存），元 */
   async bufferBefore(month: string): Promise<string> {
     const s = await series(prevMonth(month));

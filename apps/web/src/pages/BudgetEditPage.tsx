@@ -180,8 +180,8 @@ export function BudgetEditPage() {
                 </div>
               </div>
               <div className="row-between">
-                <span className={`amt ${d.kind === 'IN' ? 'in' : 'out'}`}>
-                  {d.kind === 'IN' ? '+' : '−'}
+                <span className={`amt ${d.kind === 'IN' || d.kind === 'TRANSFER_IN' ? 'in' : 'out'}`}>
+                  {d.kind === 'IN' || d.kind === 'TRANSFER_IN' ? '+' : '−'}
                   {fmtMoney(d.amount)}
                 </span>
                 <button className="ghost" onPointerDown={(e) => e.stopPropagation()} onClick={() => delDetail.mutate(d.id)}>

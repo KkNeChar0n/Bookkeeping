@@ -152,6 +152,28 @@ export const budgetPlanService = {
   },
 
   async deleteDetail(id: string): Promise<void> {
+    const row = await db.budgetDetails.get(id);
+    if (!row) return;
+    // 调出/调入是成对的零和记录：删一条，对手卡上配对的那条也级联删除
+    if ((row.kind === 'OUT' || row.kind === 'TRANSFER_IN') && row.peerCardId) {
+      const mateKind = row.kind === 'OUT' ? 'TRANSFER_IN' : 'OUT';
+      const peers = await db.budgetDetails
+        .where('[cardId+month]')
+        .equals([row.peerCardId, row.month])
+        .toArray();
+      const mate = peers.find(
+        (p) =>
+          p.kind === mateKind &&
+          p.peerCardId === row.cardId &&
+          p.amount === row.amount &&
+          p.createdAt === row.createdAt,
+      );
+      await db.transaction('rw', db.budgetDetails, async () => {
+        await db.budgetDetails.delete(id);
+        if (mate) await db.budgetDetails.delete(mate.id);
+      });
+      return;
+    }
     await db.budgetDetails.delete(id);
   },
 

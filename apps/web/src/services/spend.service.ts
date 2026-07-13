@@ -9,8 +9,9 @@ export interface SpendMonthView {
   quota: string; // 本月额度（未填为 '0.00'）
   hasQuota: boolean;
   spent: string; // 本月已消费
-  remaining: string; // 额度 − 已消费
-  overspent: boolean; // 已消费 > 额度
+  excess: string; // 本月超额支出（额外充给本卡的钱）
+  remaining: string; // 额度 + 超额支出 − 已消费
+  overspent: boolean; // 已消费 > 额度 + 超额支出
 }
 
 function monthOf(dateStr: string): string {
@@ -33,6 +34,7 @@ export const spendService = {
   async monthView(cardId: string, month: string): Promise<SpendMonthView> {
     const card = await db.cards.get(cardId);
     const quota = await consumptionBudgetService.quotaFor(cardId, month); // 额度=储蓄卡填的消费预算
+    const excess = await consumptionBudgetService.excessFor(cardId, month); // 额外充给本卡的钱
     const spent = await spentInMonth(cardId, month);
     return {
       cardId,
@@ -41,8 +43,9 @@ export const spendService = {
       quota: fromCents(quota),
       hasQuota: quota > 0,
       spent: fromCents(spent),
-      remaining: fromCents(quota - spent),
-      overspent: spent > quota,
+      excess: fromCents(excess),
+      remaining: fromCents(quota + excess - spent),
+      overspent: spent > quota + excess,
     };
   },
 
@@ -56,10 +59,11 @@ export const spendService = {
 
   /** 按周期(prefix: 'YYYY-MM' 或 'YYYY')汇总各消费卡：已消费/额度/超支 */
   async periodView(prefix: string): Promise<SpendMonthView[]> {
-    const [cards, txs, quotas] = await Promise.all([
+    const [cards, txs, quotas, excessMap] = await Promise.all([
       db.cards.toArray(),
       db.transactions.toArray(),
       db.consumptionBudgets.toArray(),
+      consumptionBudgetService.excessMap(prefix),
     ]);
     const spendCards = cards
       .filter((c) => c.type === 'SPEND')
@@ -80,14 +84,17 @@ export const spendService = {
       }
       let spent = 0;
       let quota = 0;
+      let excess = 0;
       let overspend = 0;
       const months = new Set([...spentByMonth.keys(), ...quotaByMonth.keys()]);
       for (const m of months) {
         const s = spentByMonth.get(m) ?? 0;
         const q = quotaByMonth.get(m) ?? 0;
+        const ex = excessMap.get(`${c.id}|${m}`) ?? 0;
         spent += s;
         quota += q;
-        overspend += Math.max(0, s - q);
+        excess += ex;
+        overspend += Math.max(0, s - q - ex);
       }
       return {
         cardId: c.id,
@@ -96,7 +103,8 @@ export const spendService = {
         quota: fromCents(quota),
         hasQuota: quotaByMonth.size > 0,
         spent: fromCents(spent),
-        remaining: fromCents(quota - spent),
+        excess: fromCents(excess),
+        remaining: fromCents(quota + excess - spent),
         overspent: overspend > 0,
       };
     });
