@@ -194,9 +194,8 @@ function SpendDetail({ cardId }: { cardId: string }) {
           <span className="muted">{v?.overspent ? '本月超支' : '本月剩余'}</span>
           <div className={`big ${v?.overspent ? 'neg' : ''}`}>{fmtMoney(v ? Math.abs(remaining) : '0')}</div>
           <div className="muted">
-            额度 {v?.hasQuota ? fmtMoney(v.quota) : '未设'}
-            {v && Number(v.excess) > 0 ? ` · 超额 ${fmtMoney(v.excess)}` : ''} · 已消费{' '}
-            {fmtMoney(v?.spent ?? '0')}
+            额度 {v?.hasQuota ? fmtMoney(v.quota) : '未设'} · 已消费 {fmtMoney(v?.spent ?? '0')}
+            {v?.overspent ? ` · 超支 ${fmtMoney(Math.abs(remaining))}` : ''}
           </div>
         </div>
 
