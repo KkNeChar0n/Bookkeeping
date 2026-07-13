@@ -163,7 +163,8 @@ function SpendDetail({ cardId }: { cardId: string }) {
   };
 
   const v = view.data;
-  const remaining = v ? Number(v.remaining) : 0;
+  const remaining = v ? Number(v.remaining) : 0; // 预算 + 超额 − 已消费
+  const overBudget = v ? Math.max(0, Number(v.spent) - Number(v.quota)) : 0; // 已消费 − 预算
   const rows = (txs.data ?? []).filter((t) => t.date === date);
 
   return (
@@ -191,11 +192,11 @@ function SpendDetail({ cardId }: { cardId: string }) {
 
         {/* 余额 */}
         <div className="swipe-balance">
-          <span className="muted">{v?.overspent ? '本月超支' : '本月剩余'}</span>
-          <div className={`big ${v?.overspent ? 'neg' : ''}`}>{fmtMoney(v ? Math.abs(remaining) : '0')}</div>
+          <span className="muted">本月剩余</span>
+          <div className={`big ${remaining < 0 ? 'neg' : ''}`}>{fmtMoney(remaining)}</div>
           <div className="muted">
             额度 {v?.hasQuota ? fmtMoney(v.quota) : '未设'} · 已消费 {fmtMoney(v?.spent ?? '0')}
-            {v?.overspent ? ` · 超支 ${fmtMoney(Math.abs(remaining))}` : ''}
+            {overBudget > 0 ? ` · 超支 ${fmtMoney(overBudget)}` : ''}
           </div>
         </div>
 

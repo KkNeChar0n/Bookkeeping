@@ -75,7 +75,8 @@ function SpendCard({ v, date }: { v: SpendMonthView; date: string }) {
   const navigate = useNavigate();
   const txs = useTransactions({ cardId: v.cardId, from: date, to: date });
   const rows = txs.data ?? [];
-  const remaining = Number(v.remaining);
+  const remaining = Number(v.remaining); // 预算 + 超额 − 已消费
+  const overBudget = Math.max(0, Number(v.spent) - Number(v.quota)); // 已消费 − 预算
 
   return (
     <div
@@ -99,11 +100,15 @@ function SpendCard({ v, date }: { v: SpendMonthView; date: string }) {
           <b>{fmtMoney(v.spent)}</b>
         </div>
         <div className="kv">
-          <span>{v.overspent ? '超支' : '剩余'}</span>
-          <b className={v.overspent ? 'neg' : 'pos'}>
-            {v.overspent ? fmtMoney(Math.abs(remaining)) : fmtMoney(v.remaining)}
-          </b>
+          <span>剩余</span>
+          <b className={remaining < 0 ? 'neg' : 'pos'}>{fmtMoney(remaining)}</b>
         </div>
+        {overBudget > 0 && (
+          <div className="kv">
+            <span>超支</span>
+            <b className="neg">{fmtMoney(overBudget)}</b>
+          </div>
+        )}
       </div>
 
       <div className="divider" />
