@@ -15,6 +15,13 @@ export function SummaryPage() {
   const [mode, setMode] = useState<'month' | 'year'>('month');
   const [monthVal, setMonthVal] = useState(currentMonthStr());
   const [yearVal, setYearVal] = useState(currentMonthStr().slice(0, 4));
+  const [openCats, setOpenCats] = useState<Set<string>>(new Set());
+  const toggleCat = (cat: string) =>
+    setOpenCats((prev) => {
+      const next = new Set(prev);
+      next.has(cat) ? next.delete(cat) : next.add(cat);
+      return next;
+    });
 
   const prefix = mode === 'month' ? monthVal : yearVal;
   const refMonth = mode === 'month' ? monthVal : `${yearVal}-12`;
@@ -80,19 +87,42 @@ export function SummaryPage() {
           <b>{fmtMoney(stats.data?.total ?? '0')}</b>
         </div>
         {stats.data?.rows.length ? (
-          stats.data.rows.map((row) => (
-            <div className="cat-row" key={row.category}>
-              <div className="cat-line">
-                <span>{row.category}</span>
-                <span>
-                  {fmtMoney(row.amount)} · {row.pct}%
-                </span>
+          stats.data.rows.map((row) => {
+            const open = openCats.has(row.category);
+            return (
+              <div key={row.category}>
+                <div className="cat-row" onClick={() => toggleCat(row.category)} style={{ cursor: 'pointer' }}>
+                  <div className="cat-line">
+                    <span>
+                      {row.category} <span className="muted">{open ? '▾' : '▸'}</span>
+                    </span>
+                    <span>
+                      {fmtMoney(row.amount)} · {row.pct}%
+                    </span>
+                  </div>
+                  <div className="cat-bar">
+                    <div className="cat-bar-fill" style={{ width: `${row.pct}%` }} />
+                  </div>
+                </div>
+                {open && (
+                  <div className="cat-items">
+                    {row.items.map((it) => (
+                      <div className="tx" key={it.id}>
+                        <div>
+                          <div>{it.cardName}</div>
+                          <div className="meta">
+                            {it.date}
+                            {it.note ? ` · ${it.note}` : ''}
+                          </div>
+                        </div>
+                        <span className="amt out">{fmtMoney(it.amount)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
-              <div className="cat-bar">
-                <div className="cat-bar-fill" style={{ width: `${row.pct}%` }} />
-              </div>
-            </div>
-          ))
+            );
+          })
         ) : (
           <div className="muted mt">该期间没有消费</div>
         )}

@@ -124,32 +124,53 @@ export const consumptionBudgetService = {
 
   /**
    * 某周期(prefix)内各消费卡各月分得的「超额支出」。
-   * 超额支出记在储蓄卡上（额外充给消费卡的钱），按该储蓄卡当月对各消费卡的预算占比分摊，
-   * 键为 `consumptionCardId|month`。
+   * 超额支出记在储蓄卡上（额外充给消费卡的钱），键为 `consumptionCardId|month`。
+   * 分摊规则：优先按「出资卡当月对各消费卡的预算占比」分摊；若该卡当月没填任何消费预算，
+   * 则按「所有储蓄卡当月合计的预算占比」兜底分摊——这样任意一张储蓄卡填的超额支出都会计入。
    */
   async excessMap(prefix: string): Promise<Map<string, Cents>> {
-    const [budgets, excessRows] = await Promise.all([
+    const [allBudgets, excessRows] = await Promise.all([
       db.consumptionBudgets.toArray(),
       db.savingsEntries.where('kind').equals('EXCESS').toArray(),
     ]);
-    // 储蓄卡当月超额支出、当月预算总额
+    const budgets = allBudgets.filter((b) => b.month.startsWith(prefix));
+
+    // 每张储蓄卡·每月的超额支出合计
     const exBySavM = new Map<string, Cents>();
     for (const e of excessRows)
       if (e.month.startsWith(prefix))
         exBySavM.set(`${e.cardId}|${e.month}`, (exBySavM.get(`${e.cardId}|${e.month}`) ?? 0) + e.amount);
-    const totBySavM = new Map<string, Cents>();
-    for (const b of budgets)
-      if (b.month.startsWith(prefix))
-        totBySavM.set(`${b.savingsCardId}|${b.month}`, (totBySavM.get(`${b.savingsCardId}|${b.month}`) ?? 0) + b.amount);
-    const out = new Map<string, Cents>();
+
+    // 某储蓄卡当月对各消费卡的预算（自有分摊权重）
+    const ownBySavM = new Map<string, Map<string, Cents>>(); // `savId|month` → (consumptionCardId → cents)
+    // 所有储蓄卡当月合计对各消费卡的预算（兜底分摊权重）
+    const globalByM = new Map<string, Map<string, Cents>>(); // month → (consumptionCardId → cents)
     for (const b of budgets) {
-      if (!b.month.startsWith(prefix)) continue;
-      const ex = exBySavM.get(`${b.savingsCardId}|${b.month}`) ?? 0;
-      const tot = totBySavM.get(`${b.savingsCardId}|${b.month}`) ?? 0;
-      if (ex <= 0 || tot <= 0) continue;
-      const share = Math.round((ex * b.amount) / tot);
-      const k = `${b.consumptionCardId}|${b.month}`;
-      out.set(k, (out.get(k) ?? 0) + share);
+      const savK = `${b.savingsCardId}|${b.month}`;
+      const own = ownBySavM.get(savK) ?? new Map<string, Cents>();
+      own.set(b.consumptionCardId, (own.get(b.consumptionCardId) ?? 0) + b.amount);
+      ownBySavM.set(savK, own);
+      const g = globalByM.get(b.month) ?? new Map<string, Cents>();
+      g.set(b.consumptionCardId, (g.get(b.consumptionCardId) ?? 0) + b.amount);
+      globalByM.set(b.month, g);
+    }
+
+    const out = new Map<string, Cents>();
+    const distribute = (weights: Map<string, Cents>, month: string, ex: Cents) => {
+      const tot = [...weights.values()].reduce((s, w) => s + w, 0);
+      if (tot <= 0) return;
+      for (const [cid, w] of weights) {
+        const k = `${cid}|${month}`;
+        out.set(k, (out.get(k) ?? 0) + Math.round((ex * w) / tot));
+      }
+    };
+    for (const [savM, ex] of exBySavM) {
+      if (ex <= 0) continue;
+      const sep = savM.lastIndexOf('|');
+      const month = savM.slice(sep + 1);
+      const own = ownBySavM.get(savM);
+      if (own && own.size) distribute(own, month, ex);
+      else distribute(globalByM.get(month) ?? new Map(), month, ex);
     }
     return out;
   },
