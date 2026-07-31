@@ -6,7 +6,6 @@ export interface SpendStatItem {
   amount: string; // 正数
   note: string | null;
   date: string; // YYYY-MM-DD
-  cardName: string; // 消费卡名
 }
 export interface SpendStatRow {
   category: string;
@@ -22,8 +21,7 @@ export interface SpendStats {
 export const spendStatsService = {
   /** 按消费类型汇总金额与占比，并附每笔明细。prefix: 'YYYY-MM'(按月) 或 'YYYY'(按年) */
   async byCategory(prefix: string): Promise<SpendStats> {
-    const [txs, cards] = await Promise.all([db.transactions.toArray(), db.cards.toArray()]);
-    const cardName = new Map(cards.map((c) => [c.id, c.name]));
+    const txs = await db.transactions.toArray();
     const byCat = new Map<string, { amount: Cents; items: (SpendStatItem & { createdAt: number })[] }>();
     let total = 0;
     for (const t of txs) {
@@ -38,7 +36,6 @@ export const spendStatsService = {
         amount: fromCents(amt),
         note: t.note ?? null,
         date: t.date,
-        cardName: cardName.get(t.cardId) ?? '',
         createdAt: t.createdAt,
       });
       byCat.set(cat, entry);

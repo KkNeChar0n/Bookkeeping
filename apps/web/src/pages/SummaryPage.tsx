@@ -108,13 +108,10 @@ export function SummaryPage() {
                   <div className="cat-items">
                     {row.items.map((it) => (
                       <div className="tx" key={it.id}>
-                        <div>
-                          <div>{it.cardName}</div>
-                          <div className="meta">
-                            {it.date}
-                            {it.note ? ` · ${it.note}` : ''}
-                          </div>
-                        </div>
+                        <span className="meta">
+                          {it.date}
+                          {it.note ? ` · ${it.note}` : ''}
+                        </span>
                         <span className="amt out">{fmtMoney(it.amount)}</span>
                       </div>
                     ))}
