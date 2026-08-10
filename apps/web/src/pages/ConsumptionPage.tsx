@@ -94,8 +94,9 @@ export function ConsumptionPage() {
   return (
     <div>
       <div className="row-between" style={{ marginBottom: 8 }}>
-        <h1 className="page-title" style={{ margin: 0 }}>记账</h1>
-        <button className="ghost" aria-label="设置" onClick={() => navigate('/settings')}>⚙️</button>
+        <button className="ghost" onClick={() => navigate(`/?date=${date}`)}>‹ 返回</button>
+        <h1 className="page-title" style={{ margin: 0 }}>消费详情</h1>
+        <span style={{ width: 40 }} />
       </div>
       <div
         className={`swipe-card ${armed ? 'expense' : ''}`}
