@@ -206,7 +206,7 @@ export function SummaryPage() {
               <span className={Number(r.interest) >= 0 ? 'pos' : 'neg'}>{fmtSigned(r.interest)}</span>
             </div>
             <div className="muted mt" style={{ fontSize: 12 }}>
-              消费超支=逐月 max(已花−当月消费预算, 0)，超额充值不抵消超支；预充暂存是全局消费账户里尚未使用的钱（累计已分配结转 {fmtMoney(r.carryover)}）。
+              消费超支=逐月 max(已花−当月消费预算, 0)；预充暂存=累计超额充值−累计超支−累计结转（累计结转 {fmtMoney(r.carryover)}）。
             </div>
             {!r.savingsFilled && (
               <div className="warn mt">部分储蓄卡未填该期真实额，总资产/差额暂不完整。</div>

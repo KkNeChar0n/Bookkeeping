@@ -58,16 +58,18 @@ export const reconciliationService = {
     const fundProfit = fundValue - fundPrincipal;
 
     // 消费侧累计量（含跨月结转）
-    const { carryover, overspendPos, buffer } = await consumptionBudgetService.reconcileTotals(ref);
+    const { carryover, overspendPos } = await consumptionBudgetService.reconcileTotals(ref);
+    const moved = await savingsEntryService.cumExcessUpTo(ref); // 累计额外充值
     const overspend = overspendPos; // 消费超支：逐月真正超过预算的部分（没花就是 0）
-    const prepaid = Math.max(0, buffer); // 全局虚拟消费账户中尚未使用、可供后续月份结转的金额
+    // 保持既有对账口径：正常未花预算不计入预充暂存。
+    const prepaid = moved - overspend - carryover;
     const incomeDiff = cumActualIncome - cumExpectedIncome;
 
     const budgetTotal = savingsExpected + fundPrincipal;
     const actualTotal = savingsActual + fundValue;
     const diff = actualTotal - budgetTotal;
     // 差额 = 基金盈亏 + 收入差额 + 利息 − 消费超支 − 预充暂存
-    // 消费超支和预充暂存使用统一消费月序列，利息/其他仍为对账残差。
+    //      （消费超支 + 预充暂存 = Σ超额充值 − Σ结转 = 额外挪出净额）
     const interest = diff - fundProfit - incomeDiff + overspend + prepaid;
 
     return {

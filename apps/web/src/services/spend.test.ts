@@ -5,8 +5,9 @@ import { db } from '../db/db';
 import { VIRTUAL_CONSUMPTION_CARD_ID } from '../domain/consumption';
 import { spendService } from './spend.service';
 import { spendStatsService } from './spendStats.service';
+import { reconciliationService } from './reconciliation.service';
 
-test('global month and year views use exact-month sums and only virtual consumption transactions', async () => {
+test('global budget views stay month-isolated while category stats preserve every OUT transaction', async () => {
   await db.open();
   await db.cards.bulkPut([
     { id: 's1', name: '储蓄甲', type: 'SAVINGS', initialBalance: 0, isDefault: 1, sortOrder: 1, createdAt: 1 },
@@ -24,7 +25,7 @@ test('global month and year views use exact-month sums and only virtual consumpt
   ]);
   await db.transactions.bulkAdd([
     { id: 'consume', cardId: VIRTUAL_CONSUMPTION_CARD_ID, date: '2026-08-03', type: 'OUT', amount: -220_000, category: '餐饮', note: null, peerCardId: null, transferGroupId: null, createdAt: 1 },
-    { id: 'not-consume', cardId: 's1', date: '2026-08-03', type: 'OUT', amount: -999_999, category: '不应统计', note: null, peerCardId: null, transferGroupId: null, createdAt: 2 },
+    { id: 'other-out', cardId: 's1', date: '2026-08-03', type: 'OUT', amount: -999_999, category: '其他支出', note: null, peerCardId: null, transferGroupId: null, createdAt: 2 },
   ]);
 
   assert.deepEqual(await spendService.monthView('2026-08'), {
@@ -35,8 +36,10 @@ test('global month and year views use exact-month sums and only virtual consumpt
   assert.equal(annual.quota, '4180.95');
   assert.equal(annual.overspend, '200.00');
   const stats = await spendStatsService.byCategory('2026-08');
-  assert.equal(stats.total, '2200.00');
-  assert.deepEqual(stats.rows.map((row) => row.category), ['餐饮']);
+  assert.equal(stats.total, '12199.99');
+  assert.deepEqual(stats.rows.map((row) => row.category), ['其他支出', '餐饮']);
+  const reconciliation = await reconciliationService.compute('2026-08');
+  assert.equal(reconciliation.prepaid, '-1700.00');
   db.close();
   await db.delete();
 });
