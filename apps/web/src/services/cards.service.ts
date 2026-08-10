@@ -1,6 +1,7 @@
 import { db, newId, nowTs, type CardRow, type CardType } from '../db/db';
 import { fromCents, toCents } from '../domain/money';
 import type { Card } from '../api/types';
+import { VIRTUAL_CONSUMPTION_CARD_ID } from '../domain/consumption';
 
 function toDTO(c: CardRow): Card {
   return {
@@ -22,7 +23,9 @@ async function orderedRows(): Promise<CardRow[]> {
 
 export const cardsService = {
   async list(): Promise<Card[]> {
-    return (await orderedRows()).map(toDTO);
+    return (await orderedRows())
+      .filter((row) => row.id !== VIRTUAL_CONSUMPTION_CARD_ID)
+      .map(toDTO);
   },
 
   async create(input: {
@@ -37,6 +40,7 @@ export const cardsService = {
     const sortOrder = rows.reduce((m, r) => Math.max(m, r.sortOrder), -1) + 1;
     const initial = toCents(input.initialBalance ?? '0');
     const type = input.type ?? 'SAVINGS';
+    if (type === 'SPEND') throw new Error('消费账户由系统统一管理');
     const row: CardRow = {
       id: newId(),
       name,
@@ -63,6 +67,7 @@ export const cardsService = {
   ): Promise<Card> {
     const existing = await db.cards.get(id);
     if (!existing) throw new Error('卡片不存在');
+    if (id === VIRTUAL_CONSUMPTION_CARD_ID) throw new Error('消费账户由系统统一管理');
     const patch: Partial<CardRow> = {};
     if (input.name !== undefined) {
       const name = input.name.trim();
@@ -78,6 +83,7 @@ export const cardsService = {
   async remove(id: string): Promise<{ ok: true }> {
     const existing = await db.cards.get(id);
     if (!existing) throw new Error('卡片不存在');
+    if (id === VIRTUAL_CONSUMPTION_CARD_ID) throw new Error('消费账户不可删除');
     if (existing.isDefault === 1) throw new Error('默认卡不可删除，请先设置其他默认卡');
     const asCard = await db.transactions.where('cardId').equals(id).count();
     const asPeer = await db.transactions.filter((t) => t.peerCardId === id).count();
@@ -90,6 +96,7 @@ export const cardsService = {
   async setFund(id: string, input: { principal?: string; value?: string }): Promise<Card> {
     const existing = await db.cards.get(id);
     if (!existing) throw new Error('卡片不存在');
+    if (id === VIRTUAL_CONSUMPTION_CARD_ID) throw new Error('消费账户不能设为默认卡');
     const patch: Partial<CardRow> = {};
     if (input.principal !== undefined) patch.fundPrincipal = toCents(input.principal);
     if (input.value !== undefined) patch.fundValue = toCents(input.value);
@@ -109,6 +116,7 @@ export const cardsService = {
 
   async reorder(orderedIds: string[]): Promise<Card[]> {
     if (orderedIds.length === 0) throw new Error('排序列表为空');
+    if (orderedIds.includes(VIRTUAL_CONSUMPTION_CARD_ID)) throw new Error('消费账户不可排序');
     await db.transaction('rw', db.cards, async () => {
       await Promise.all(orderedIds.map((id, idx) => db.cards.update(id, { sortOrder: idx })));
     });

@@ -276,24 +276,24 @@ export function useSetSavingsEntry() {
     onSuccess: inv,
   });
 }
-// ---- 本月消费预算（储蓄卡→消费卡） ----
-export function useConsumptionBudgets(savingsCardId: string, month: string) {
+// ---- 本月消费预算（储蓄卡→全局虚拟消费账户） ----
+export function useConsumptionBudget(savingsCardId: string, month: string) {
   return useQuery({
     queryKey: ['consumptionBudget', savingsCardId, month],
-    queryFn: () => consumptionBudgetService.list(savingsCardId, month),
+    queryFn: () => consumptionBudgetService.contribution(savingsCardId, month),
     enabled: !!savingsCardId,
   });
 }
-export function useBufferBefore(month: string) {
+export function useConsumptionFunding(month: string) {
   return useQuery({
-    queryKey: ['consumptionBudget', 'bufferBefore', month],
-    queryFn: () => consumptionBudgetService.bufferBefore(month),
+    queryKey: ['consumptionBudget', 'funding', month],
+    queryFn: () => consumptionBudgetService.fundingForMonth(month),
   });
 }
 export function useSetConsumptionBudget() {
   const inv = useInvalidateLedger();
   return useMutation({
-    mutationFn: (body: { savingsCardId: string; consumptionCardId: string; month: string; amount: string }) =>
+    mutationFn: (body: { savingsCardId: string; month: string; amount: string }) =>
       consumptionBudgetService.setBudget(body),
     onSuccess: inv,
   });
@@ -336,29 +336,13 @@ export function useSavingsSummaryAsOf(refMonth: string) {
   });
 }
 
-// ---- 消费卡按月额度 ----
+// ---- 全局消费账户的按月/期间视图 ----
 export function useSpendMonth(month: string) {
-  return useQuery({ queryKey: ['spend', 'month', month], queryFn: () => spendService.listForMonth(month) });
-}
-export function useSpendCardMonth(cardId: string, month: string) {
-  return useQuery({
-    queryKey: ['spend', 'card', cardId, month],
-    queryFn: () => spendService.monthView(cardId, month),
-    enabled: !!cardId,
-  });
+  return useQuery({ queryKey: ['spend', 'month', month], queryFn: () => spendService.monthView(month) });
 }
 export function useSpendPeriod(prefix: string) {
   return useQuery({ queryKey: ['spend', 'period', prefix], queryFn: () => spendService.periodView(prefix) });
 }
-export function useSetQuota() {
-  const inv = useInvalidateLedger();
-  return useMutation({
-    mutationFn: (body: { cardId: string; month: string; amount: string }) =>
-      spendService.setQuota(body),
-    onSuccess: inv,
-  });
-}
-
 // ---- 基金：直填本金/市值 ----
 export function useSetFund() {
   const inv = useInvalidateLedger();

@@ -1,5 +1,9 @@
 import Dexie, { type Table } from 'dexie';
 import type { TxType } from '../domain/balance';
+import {
+  VIRTUAL_CONSUMPTION_CARD_ID,
+  VIRTUAL_CONSUMPTION_CARD_NAME,
+} from '../domain/consumption';
 
 // 卡类型：储蓄卡 / 消费卡 / 基金
 export type CardType = 'SAVINGS' | 'SPEND' | 'FUND';
@@ -92,7 +96,7 @@ export interface SavingsLogRow {
   createdAt: number; // 时间戳
 }
 
-// 消费卡每月额度（旧：直接在消费卡上填。新流程改由 consumptionBudgets 供给）
+// 旧版消费卡每月额度，仅用于旧备份/迁移的输入类型。
 export interface SpendQuotaRow {
   id: string;
   cardId: string;
@@ -101,12 +105,10 @@ export interface SpendQuotaRow {
   updatedAt: number;
 }
 
-// 本月消费预算：在某张储蓄卡的编辑里，给某张消费卡拨的预算（=该消费卡当月额度来源）
-// 绑定到具体储蓄卡，新转账才对得上那张卡的余额削减
+// 本月消费预算：一张储蓄卡对全局虚拟消费账户的当月预算贡献。
 export interface ConsumptionBudgetRow {
   id: string;
   savingsCardId: string; // 出资的储蓄卡
-  consumptionCardId: string; // 供给的消费卡
   month: string; // YYYY-MM
   amount: number; // cents（本月消费预算）
   updatedAt: number;
@@ -128,14 +130,13 @@ export class BookkeepingDB extends Dexie {
   transactions!: Table<TransactionRow, string>;
   budgetDetails!: Table<BudgetDetailRow, string>;
   savingsActuals!: Table<SavingsActualRow, string>;
-  spendQuotas!: Table<SpendQuotaRow, string>;
   categories!: Table<CategoryRow, string>;
   savingsEntries!: Table<SavingsEntryRow, string>;
   savingsLogs!: Table<SavingsLogRow, string>;
   consumptionBudgets!: Table<ConsumptionBudgetRow, string>;
 
-  constructor() {
-    super('bookkeeping');
+  constructor(name = 'bookkeeping') {
+    super(name);
     this.version(1).stores({
       cards: 'id, sortOrder, isDefault',
       budgetSnapshots: 'id, &date',
@@ -204,7 +205,7 @@ export class BookkeepingDB extends Dexie {
           savings.sort((a, b) => a.sortOrder - b.sortOrder || a.createdAt - b.createdAt)[0];
         if (!funder) return;
         const quotas = (await tx.table('spendQuotas').toArray()) as SpendQuotaRow[];
-        const rows: ConsumptionBudgetRow[] = quotas.map((q) => ({
+        const rows = quotas.map((q) => ({
           id: crypto.randomUUID(),
           savingsCardId: funder.id,
           consumptionCardId: q.cardId,
@@ -214,6 +215,103 @@ export class BookkeepingDB extends Dexie {
         }));
         if (rows.length) await tx.table('consumptionBudgets').bulkAdd(rows);
       });
+
+    // v9：消费账户变为唯一的系统虚拟账户；预算按“储蓄卡+月份”聚合。
+    this.version(9)
+      .stores({
+        spendQuotas: null,
+        // Keep this index non-unique while the upgrade callback merges old per-consumption-card rows.
+        consumptionBudgets: 'id, [savingsCardId+month], month',
+      })
+      .upgrade(async (tx) => {
+        const cards = (await tx.table('cards').toArray()) as CardRow[];
+        const oldSpendIds = new Set(
+          cards.filter((card) => card.type === 'SPEND').map((card) => card.id),
+        );
+        const savings = cards
+          .filter((card) => card.type === 'SAVINGS')
+          .sort((a, b) => a.sortOrder - b.sortOrder || a.createdAt - b.createdAt);
+        const defaultSavings = savings.find((card) => card.isDefault) ?? savings[0];
+        const oldBudgets = (await tx.table('consumptionBudgets').toArray()) as ConsumptionBudgetRow[];
+        const legacyQuotas = (await tx.table('spendQuotas').toArray()) as SpendQuotaRow[];
+
+        const aggregated = new Map<string, ConsumptionBudgetRow>();
+        const monthsWithBudget = new Set<string>();
+        for (const row of oldBudgets) {
+          monthsWithBudget.add(row.month);
+          const key = `${row.savingsCardId}|${row.month}`;
+          const found = aggregated.get(key);
+          if (found) {
+            found.amount += row.amount;
+            found.updatedAt = Math.max(found.updatedAt, row.updatedAt);
+          } else {
+            aggregated.set(key, {
+              id: row.id,
+              savingsCardId: row.savingsCardId,
+              month: row.month,
+              amount: row.amount,
+              updatedAt: row.updatedAt,
+            });
+          }
+        }
+        if (defaultSavings) {
+          const quotaByMonth = new Map<string, { amount: number; updatedAt: number }>();
+          for (const quota of legacyQuotas) {
+            if (monthsWithBudget.has(quota.month)) continue;
+            const found = quotaByMonth.get(quota.month) ?? { amount: 0, updatedAt: 0 };
+            found.amount += quota.amount;
+            found.updatedAt = Math.max(found.updatedAt, quota.updatedAt);
+            quotaByMonth.set(quota.month, found);
+          }
+          for (const [month, value] of quotaByMonth) {
+            aggregated.set(`${defaultSavings.id}|${month}`, {
+              id: crypto.randomUUID(),
+              savingsCardId: defaultSavings.id,
+              month,
+              amount: value.amount,
+              updatedAt: value.updatedAt,
+            });
+          }
+        }
+
+        await tx.table('consumptionBudgets').clear();
+        if (aggregated.size) {
+          await tx.table('consumptionBudgets').bulkAdd([...aggregated.values()]);
+        }
+        await tx
+          .table('transactions')
+          .toCollection()
+          .modify((row: TransactionRow) => {
+            if (oldSpendIds.has(row.cardId)) row.cardId = VIRTUAL_CONSUMPTION_CARD_ID;
+          });
+        await tx.table('cards').bulkDelete([...oldSpendIds]);
+        await tx.table('cards').put({
+          id: VIRTUAL_CONSUMPTION_CARD_ID,
+          name: VIRTUAL_CONSUMPTION_CARD_NAME,
+          type: 'SPEND',
+          initialBalance: 0,
+          isDefault: 0,
+          sortOrder: -1,
+          createdAt: 0,
+        } satisfies CardRow);
+      });
+    // Add uniqueness only after v9 has collapsed possible duplicates.
+    this.version(10).stores({
+      consumptionBudgets: 'id, &[savingsCardId+month], month',
+    });
+
+    // Fresh installs skip upgrade callbacks, so seed the same internal account on populate.
+    this.on('populate', () =>
+      this.cards.add({
+        id: VIRTUAL_CONSUMPTION_CARD_ID,
+        name: VIRTUAL_CONSUMPTION_CARD_NAME,
+        type: 'SPEND',
+        initialBalance: 0,
+        isDefault: 0,
+        sortOrder: -1,
+        createdAt: 0,
+      }),
+    );
   }
 }
 

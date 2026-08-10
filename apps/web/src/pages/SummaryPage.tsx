@@ -33,7 +33,7 @@ export function SummaryPage() {
   const savingsCmp = useSavingsSummaryAsOf(refMonth);
   const views = useCardViews();
 
-  const spendRows = spend.data ?? [];
+  const spendView = spend.data;
   const savings = savingsCmp.data ?? [];
   const fund = (views.data ?? []).filter((v) => v.type === 'FUND');
   const inc = incomeCmp.data;
@@ -61,22 +61,20 @@ export function SummaryPage() {
         {/* 消费超支 */}
         <div className="divider" />
         <div className="detail-sub">消费 · 超支情况</div>
-        {spendRows.length ? (
-          spendRows.map((v) => (
-            <div className="sum-row" key={v.cardId}>
-              <span>
-                {v.cardName}
-                <span className="meta"> 额度{v.hasQuota ? fmtMoney(v.quota) : '未设'} · 已花{fmtMoney(v.spent)}</span>
-              </span>
-              {v.overspent ? (
-                <b className="neg">超支 {fmtMoney(Math.max(0, -Number(v.remaining)))}</b>
-              ) : (
-                <span className="pos">剩 {fmtMoney(v.remaining)}</span>
-              )}
-            </div>
-          ))
+        {spendView ? (
+          <div className="sum-row">
+            <span>
+              全局消费
+              <span className="meta"> {mode === 'year' ? '期间额度' : '当月额度'}{spendView.hasQuota ? fmtMoney(spendView.quota) : '未设'} · 已花{fmtMoney(spendView.spent)} · 超额充值{fmtMoney(spendView.excess)}</span>
+            </span>
+            {spendView.overspent ? (
+              <b className="neg">超支 {fmtMoney(spendView.overspend)}</b>
+            ) : (
+              <span className={Number(spendView.remaining) >= 0 ? 'pos' : 'neg'}>剩 {fmtMoney(spendView.remaining)}</span>
+            )}
+          </div>
         ) : (
-          <div className="muted">没有消费卡</div>
+          <div className="muted">暂无消费数据</div>
         )}
 
         {/* 消费分类 */}
@@ -208,7 +206,7 @@ export function SummaryPage() {
               <span className={Number(r.interest) >= 0 ? 'pos' : 'neg'}>{fmtSigned(r.interest)}</span>
             </div>
             <div className="muted mt" style={{ fontSize: 12 }}>
-              消费超支=已花−消费预算；预充暂存=消费卡里还没花的钱（其中已用上月结转 {fmtMoney(r.carryover)}）。
+              消费超支=逐月 max(已花−当月消费预算, 0)，超额充值不抵消超支；预充暂存是全局消费账户里尚未使用的钱（累计已分配结转 {fmtMoney(r.carryover)}）。
             </div>
             {!r.savingsFilled && (
               <div className="warn mt">部分储蓄卡未填该期真实额，总资产/差额暂不完整。</div>

@@ -1,193 +1,174 @@
 import { db, newId, nowTs, type ConsumptionBudgetRow } from '../db/db';
+import {
+  allocateCarry,
+  consumptionMonthTotals,
+  VIRTUAL_CONSUMPTION_CARD_ID,
+} from '../domain/consumption';
 import { fromCents, toCents, type Cents } from '../domain/money';
 
-function prevMonth(m: string): string {
-  const [y, mo] = m.split('-').map(Number);
-  const idx = y * 12 + (mo - 1) - 1;
-  return `${Math.floor(idx / 12)}-${String((idx % 12) + 1).padStart(2, '0')}`;
+function prevMonth(month: string): string {
+  const [year, value] = month.split('-').map(Number);
+  const index = year * 12 + value - 2;
+  return `${Math.floor(index / 12)}-${String((index % 12) + 1).padStart(2, '0')}`;
 }
 
-// 按月汇总：本月消费预算 / 超额支出 / 已花（消费卡）
 async function monthlyTotals(upTo: string) {
-  const [budgets, excess, txs, cards] = await Promise.all([
+  const [budgets, excessRows, transactions] = await Promise.all([
     db.consumptionBudgets.toArray(),
     db.savingsEntries.where('kind').equals('EXCESS').toArray(),
-    db.transactions.toArray(),
-    db.cards.toArray(),
+    db.transactions.where('cardId').equals(VIRTUAL_CONSUMPTION_CARD_ID).toArray(),
   ]);
-  const spendIds = new Set(cards.filter((c) => c.type === 'SPEND').map((c) => c.id));
-  const budgetByM = new Map<string, Cents>();
-  for (const b of budgets)
-    if (b.month <= upTo) budgetByM.set(b.month, (budgetByM.get(b.month) ?? 0) + b.amount);
-  const excessByM = new Map<string, Cents>();
-  for (const e of excess)
-    if (e.month <= upTo) excessByM.set(e.month, (excessByM.get(e.month) ?? 0) + e.amount);
-  const spentByM = new Map<string, Cents>();
-  for (const t of txs) {
-    if (t.type !== 'OUT' || !spendIds.has(t.cardId)) continue;
-    const m = t.date.slice(0, 7);
-    if (m > upTo) continue;
-    spentByM.set(m, (spentByM.get(m) ?? 0) + -t.amount);
+  const budgetByMonth = new Map<string, Cents>();
+  for (const row of budgets) {
+    if (row.month <= upTo) {
+      budgetByMonth.set(row.month, (budgetByMonth.get(row.month) ?? 0) + row.amount);
+    }
   }
-  const months = [
-    ...new Set([...budgetByM.keys(), ...excessByM.keys(), ...spentByM.keys()]),
-  ].sort();
-  return { months, budgetByM, excessByM, spentByM };
+  const excessByMonth = new Map<string, Cents>();
+  for (const row of excessRows) {
+    if (row.month <= upTo) {
+      excessByMonth.set(row.month, (excessByMonth.get(row.month) ?? 0) + row.amount);
+    }
+  }
+  const spentByMonth = new Map<string, Cents>();
+  for (const row of transactions) {
+    if (row.type !== 'OUT') continue;
+    const month = row.date.slice(0, 7);
+    if (month <= upTo) {
+      spentByMonth.set(month, (spentByMonth.get(month) ?? 0) + -row.amount);
+    }
+  }
+  const months = [...new Set([
+    ...budgetByMonth.keys(),
+    ...excessByMonth.keys(),
+    ...spentByMonth.keys(),
+  ])].sort();
+  return { months, budgetByMonth, excessByMonth, spentByMonth };
 }
 
-// 按月正序递推：结转(m)=min(上月末暂存, 本月预算)，暂存(m)=上月暂存+预算+超额−已花−结转
 async function series(upTo: string) {
-  const { months, budgetByM, excessByM, spentByM } = await monthlyTotals(upTo);
-  let buffer = 0;
+  const values = await monthlyTotals(upTo);
+  let prepaid = 0;
   let carryoverTotal = 0;
   let totalBudget = 0;
   let totalSpent = 0;
-  let overspendPos = 0; // Σ逐月 max(0, 已花 − 消费预算)：真正超过预算的部分
-  const bufferStart = new Map<string, Cents>();
-  for (const m of months) {
-    bufferStart.set(m, buffer);
-    const budget = budgetByM.get(m) ?? 0;
-    const spent = spentByM.get(m) ?? 0;
-    const carry = Math.max(0, Math.min(buffer, budget));
-    carryoverTotal += carry;
-    totalBudget += budget;
-    totalSpent += spent;
-    overspendPos += Math.max(0, spent - budget);
-    buffer = buffer + budget + (excessByM.get(m) ?? 0) - spent - carry;
+  let overspendPos = 0;
+  for (const month of values.months) {
+    const totals = consumptionMonthTotals({
+      budget: values.budgetByMonth.get(month) ?? 0,
+      excess: values.excessByMonth.get(month) ?? 0,
+      spent: values.spentByMonth.get(month) ?? 0,
+      prepaidStart: prepaid,
+    });
+    carryoverTotal += totals.carry;
+    totalBudget += totals.budget;
+    totalSpent += totals.spent;
+    overspendPos += totals.overspend;
+    prepaid = totals.prepaidEnd;
   }
-  return { bufferEnd: buffer, carryoverTotal, totalBudget, totalSpent, overspendPos, bufferStart };
+  return { bufferEnd: prepaid, carryoverTotal, totalBudget, totalSpent, overspendPos };
 }
 
-export interface CBudgetDTO {
-  consumptionCardId: string;
-  consumptionCardName: string;
+export interface ConsumptionFundingRow {
+  savingsCardId: string;
+  savingsCardName: string;
   amount: string;
+  carry: string;
+  newTransfer: string;
+}
+
+export interface ConsumptionFundingView {
+  month: string;
+  budget: string;
+  prepaidStart: string;
+  rows: ConsumptionFundingRow[];
 }
 
 export const consumptionBudgetService = {
-  /** 某储蓄卡某月给各消费卡填的预算（消费卡全列出，没填的为空） */
-  async list(savingsCardId: string, month: string): Promise<CBudgetDTO[]> {
-    const [cards, rows] = await Promise.all([
-      db.cards.toArray(),
-      db.consumptionBudgets.where('[savingsCardId+month]').equals([savingsCardId, month]).toArray(),
-    ]);
-    const byCard = new Map(rows.map((r) => [r.consumptionCardId, r.amount]));
-    return cards
-      .filter((c) => c.type === 'SPEND')
-      .sort((a, b) => a.sortOrder - b.sortOrder || a.createdAt - b.createdAt)
-      .map((c) => ({
-        consumptionCardId: c.id,
-        consumptionCardName: c.name,
-        amount: byCard.has(c.id) ? fromCents(byCard.get(c.id)!) : '',
-      }));
+  /** A savings card's exact-month contribution; missing values stay empty in the editor. */
+  async contribution(savingsCardId: string, month: string): Promise<string> {
+    const row = await db.consumptionBudgets
+      .where('[savingsCardId+month]')
+      .equals([savingsCardId, month])
+      .first();
+    return row ? fromCents(row.amount) : '';
   },
 
-  /** 覆盖式设置（金额≤0 则删除该条） */
-  async setBudget(input: {
-    savingsCardId: string;
-    consumptionCardId: string;
-    month: string;
-    amount: string;
-  }): Promise<void> {
-    const amt = toCents(input.amount || '0');
+  /** Replace a savings card's exact-month contribution; zero removes it. */
+  async setBudget(input: { savingsCardId: string; month: string; amount: string }): Promise<void> {
+    const amount = toCents(input.amount || '0');
     const existing = await db.consumptionBudgets
-      .where('[savingsCardId+consumptionCardId+month]')
-      .equals([input.savingsCardId, input.consumptionCardId, input.month])
+      .where('[savingsCardId+month]')
+      .equals([input.savingsCardId, input.month])
       .first();
-    if (amt <= 0) {
+    if (amount <= 0) {
       if (existing) await db.consumptionBudgets.delete(existing.id);
       return;
     }
     if (existing) {
-      await db.consumptionBudgets.update(existing.id, { amount: amt, updatedAt: nowTs() });
-    } else {
-      const row: ConsumptionBudgetRow = {
-        id: newId(),
-        savingsCardId: input.savingsCardId,
-        consumptionCardId: input.consumptionCardId,
-        month: input.month,
-        amount: amt,
-        updatedAt: nowTs(),
-      };
-      await db.consumptionBudgets.add(row);
+      await db.consumptionBudgets.update(existing.id, { amount, updatedAt: nowTs() });
+      return;
     }
-  },
-
-  /** 某消费卡某月的额度 = 各储蓄卡给它的预算之和 */
-  async quotaFor(consumptionCardId: string, month: string): Promise<Cents> {
-    const rows = await db.consumptionBudgets
-      .where('[consumptionCardId+month]')
-      .equals([consumptionCardId, month])
-      .toArray();
-    return rows.reduce((s, r) => s + r.amount, 0);
-  },
-
-  /**
-   * 某周期(prefix)内各消费卡各月分得的「超额支出」。
-   * 超额支出记在储蓄卡上（额外充给消费卡的钱），键为 `consumptionCardId|month`。
-   * 分摊规则：优先按「出资卡当月对各消费卡的预算占比」分摊；若该卡当月没填任何消费预算，
-   * 则按「所有储蓄卡当月合计的预算占比」兜底分摊——这样任意一张储蓄卡填的超额支出都会计入。
-   */
-  async excessMap(prefix: string): Promise<Map<string, Cents>> {
-    const [allBudgets, excessRows] = await Promise.all([
-      db.consumptionBudgets.toArray(),
-      db.savingsEntries.where('kind').equals('EXCESS').toArray(),
-    ]);
-    const budgets = allBudgets.filter((b) => b.month.startsWith(prefix));
-
-    // 每张储蓄卡·每月的超额支出合计
-    const exBySavM = new Map<string, Cents>();
-    for (const e of excessRows)
-      if (e.month.startsWith(prefix))
-        exBySavM.set(`${e.cardId}|${e.month}`, (exBySavM.get(`${e.cardId}|${e.month}`) ?? 0) + e.amount);
-
-    // 某储蓄卡当月对各消费卡的预算（自有分摊权重）
-    const ownBySavM = new Map<string, Map<string, Cents>>(); // `savId|month` → (consumptionCardId → cents)
-    // 所有储蓄卡当月合计对各消费卡的预算（兜底分摊权重）
-    const globalByM = new Map<string, Map<string, Cents>>(); // month → (consumptionCardId → cents)
-    for (const b of budgets) {
-      const savK = `${b.savingsCardId}|${b.month}`;
-      const own = ownBySavM.get(savK) ?? new Map<string, Cents>();
-      own.set(b.consumptionCardId, (own.get(b.consumptionCardId) ?? 0) + b.amount);
-      ownBySavM.set(savK, own);
-      const g = globalByM.get(b.month) ?? new Map<string, Cents>();
-      g.set(b.consumptionCardId, (g.get(b.consumptionCardId) ?? 0) + b.amount);
-      globalByM.set(b.month, g);
-    }
-
-    const out = new Map<string, Cents>();
-    const distribute = (weights: Map<string, Cents>, month: string, ex: Cents) => {
-      const tot = [...weights.values()].reduce((s, w) => s + w, 0);
-      if (tot <= 0) return;
-      for (const [cid, w] of weights) {
-        const k = `${cid}|${month}`;
-        out.set(k, (out.get(k) ?? 0) + Math.round((ex * w) / tot));
-      }
+    const row: ConsumptionBudgetRow = {
+      id: newId(),
+      savingsCardId: input.savingsCardId,
+      month: input.month,
+      amount,
+      updatedAt: nowTs(),
     };
-    for (const [savM, ex] of exBySavM) {
-      if (ex <= 0) continue;
-      const sep = savM.lastIndexOf('|');
-      const month = savM.slice(sep + 1);
-      const own = ownBySavM.get(savM);
-      if (own && own.size) distribute(own, month, ex);
-      else distribute(globalByM.get(month) ?? new Map(), month, ex);
-    }
-    return out;
+    await db.consumptionBudgets.add(row);
   },
 
-  /** 某消费卡某月分得的超额支出 */
-  async excessFor(consumptionCardId: string, month: string): Promise<Cents> {
-    const m = await this.excessMap(month);
-    return m.get(`${consumptionCardId}|${month}`) ?? 0;
+  /** Global monthly quota = sum of every savings card's contribution for this exact month. */
+  async quotaFor(month: string): Promise<Cents> {
+    const rows = await db.consumptionBudgets.where('month').equals(month).toArray();
+    return rows.reduce((sum, row) => sum + row.amount, 0);
   },
 
-  /** 进入某月编辑时，可用于结转的期初暂存（=上月末暂存），元 */
+  /** Global monthly excess recharge, without card weighting or cross-month fallback. */
+  async excessFor(month: string): Promise<Cents> {
+    const rows = await db.savingsEntries.where('kind').equals('EXCESS').toArray();
+    return rows.filter((row) => row.month === month).reduce((sum, row) => sum + row.amount, 0);
+  },
+
+  /** Saved funding and the single globally allocated carry pool for a month. */
+  async fundingForMonth(month: string): Promise<ConsumptionFundingView> {
+    const [cards, budgets, prepaidText] = await Promise.all([
+      db.cards.toArray(),
+      db.consumptionBudgets.where('month').equals(month).toArray(),
+      this.bufferBefore(month),
+    ]);
+    const savings = cards
+      .filter((card) => card.type === 'SAVINGS')
+      .sort((a, b) => a.sortOrder - b.sortOrder || a.createdAt - b.createdAt);
+    const bySavings = new Map(budgets.map((row) => [row.savingsCardId, row.amount]));
+    const allocations = allocateCarry(
+      savings.map((card) => ({ savingsCardId: card.id, budget: bySavings.get(card.id) ?? 0 })),
+      toCents(prepaidText),
+    );
+    const allocationByCard = new Map(allocations.map((row) => [row.savingsCardId, row]));
+    return {
+      month,
+      budget: fromCents(allocations.reduce((sum, row) => sum + row.budget, 0)),
+      prepaidStart: prepaidText,
+      rows: savings.map((card) => {
+        const row = allocationByCard.get(card.id)!;
+        return {
+          savingsCardId: card.id,
+          savingsCardName: card.name,
+          amount: fromCents(row.budget),
+          carry: fromCents(row.carry),
+          newTransfer: fromCents(row.newTransfer),
+        };
+      }),
+    };
+  },
+
   async bufferBefore(month: string): Promise<string> {
-    const s = await series(prevMonth(month));
-    return fromCents(Math.max(0, s.bufferEnd));
+    const values = await series(prevMonth(month));
+    return fromCents(Math.max(0, values.bufferEnd));
   },
 
-  /** 对账所需的累计量（截至 ref） */
   async reconcileTotals(refMonth: string): Promise<{
     totalBudget: Cents;
     totalSpent: Cents;
@@ -195,13 +176,13 @@ export const consumptionBudgetService = {
     overspendPos: Cents;
     buffer: Cents;
   }> {
-    const s = await series(refMonth);
+    const values = await series(refMonth);
     return {
-      totalBudget: s.totalBudget,
-      totalSpent: s.totalSpent,
-      carryover: s.carryoverTotal,
-      overspendPos: s.overspendPos,
-      buffer: s.bufferEnd,
+      totalBudget: values.totalBudget,
+      totalSpent: values.totalSpent,
+      carryover: values.carryoverTotal,
+      overspendPos: values.overspendPos,
+      buffer: values.bufferEnd,
     };
   },
 };

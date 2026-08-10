@@ -1,6 +1,6 @@
 import { HashRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { Layout } from './components/Layout';
-import { DailyPage } from './pages/DailyPage';
+import { ConsumptionPage } from './pages/ConsumptionPage';
 import { CardDetailPage } from './pages/CardDetailPage';
 import { BudgetPage } from './pages/BudgetPage';
 import { BudgetCardPage } from './pages/BudgetCardPage';
@@ -16,7 +16,8 @@ export function App() {
     <HashRouter>
       <Routes>
         <Route element={<Layout />}>
-          <Route path="/" element={<DailyPage />} />
+          <Route path="/" element={<Navigate to="/consume" replace />} />
+          <Route path="/consume" element={<ConsumptionPage />} />
           <Route path="/card/:id" element={<CardDetailPage />} />
           <Route path="/budget" element={<BudgetPage />} />
           <Route path="/budget/:id" element={<BudgetCardPage />} />

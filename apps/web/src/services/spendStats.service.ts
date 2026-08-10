@@ -1,5 +1,6 @@
 import { db } from '../db/db';
 import { fromCents, type Cents } from '../domain/money';
+import { VIRTUAL_CONSUMPTION_CARD_ID } from '../domain/consumption';
 
 export interface SpendStatItem {
   id: string;
@@ -25,7 +26,7 @@ export const spendStatsService = {
     const byCat = new Map<string, { amount: Cents; items: (SpendStatItem & { createdAt: number })[] }>();
     let total = 0;
     for (const t of txs) {
-      if (t.type !== 'OUT') continue;
+      if (t.type !== 'OUT' || t.cardId !== VIRTUAL_CONSUMPTION_CARD_ID) continue;
       if (!t.date.startsWith(prefix)) continue;
       const amt = -t.amount; // OUT 存负数，取正
       const cat = t.category ?? '未分类';

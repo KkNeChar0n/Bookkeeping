@@ -26,9 +26,6 @@ export function SettingsPage() {
       <div className="section-title">新建储蓄卡</div>
       <CreateCardForm type="SAVINGS" placeholder="如：工资卡" />
 
-      <div className="section-title">新建消费卡</div>
-      <CreateCardForm type="SPEND" placeholder="如：日常消费" />
-
       <KindSection kind="income" title="收入类型" rows={income} />
       <KindSection kind="expense" title="支出类型" rows={expense} />
 

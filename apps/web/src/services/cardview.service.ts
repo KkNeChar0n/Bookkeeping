@@ -4,6 +4,7 @@ import { cardAggregates } from './ledger';
 import { resolveCoverageSnapshot } from '../domain/balance';
 import { fromCents, toCents } from '../domain/money';
 import type { CardView } from '../api/types';
+import { VIRTUAL_CONSUMPTION_CARD_ID } from '../domain/consumption';
 
 function todayISO(): string {
   const d = new Date();
@@ -17,7 +18,9 @@ export const cardViewService = {
   async list(date?: string): Promise<CardView[]> {
     const target = (date ?? todayISO()).slice(0, 10);
     const cardsRaw = await db.cards.toArray();
-    const cards = cardsRaw.sort((a, b) => a.sortOrder - b.sortOrder || a.createdAt - b.createdAt);
+    const cards = cardsRaw
+      .filter((card) => card.id !== VIRTUAL_CONSUMPTION_CARD_ID)
+      .sort((a, b) => a.sortOrder - b.sortOrder || a.createdAt - b.createdAt);
     const [snapshots, agg] = await Promise.all([budgetsService.list(), cardAggregates(target)]);
 
     const coverage = resolveCoverageSnapshot(
@@ -37,8 +40,7 @@ export const cardViewService = {
       const value = isFund ? (c.fundValue ?? c.initialBalance) : a.balance;
       const profit = isFund ? value - principal : a.adjust;
       const profitPct = principal !== 0 ? Math.round((profit / principal) * 10000) / 100 : null;
-      // 超支：消费卡看余额<0；其它看实际<预算
-      const overspent = c.type === 'SPEND' ? a.balance < 0 : a.balance < budgetBal;
+      const overspent = a.balance < budgetBal;
       return {
         cardId: c.id,
         cardName: c.name,

@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { backupService } from '../services/backup.service';
 
-/** 导出/导入备份（放在消费、储蓄页面各一份） */
+/** Export/import the complete local ledger. */
 export function BackupPanel() {
   const qc = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -31,7 +31,7 @@ export function BackupPanel() {
   };
 
   const doClear = async () => {
-    if (!window.confirm('将删除全部储蓄卡、消费卡、流水、预算、消费预算、修改日志——只保留基金卡。此操作不可撤销，确定？')) return;
+    if (!window.confirm('将删除全部储蓄卡、消费流水、预算、消费预算、修改日志——只保留基金卡。此操作不可撤销，确定？')) return;
     if (!window.confirm('再确认一次：真的清空吗？建议先「导出备份」。')) return;
     setMsg('');
     try {
