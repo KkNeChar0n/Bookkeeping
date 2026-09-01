@@ -1,9 +1,6 @@
 import Dexie, { type Table } from 'dexie';
 import type { TxType } from '../domain/balance';
-import {
-  VIRTUAL_CONSUMPTION_CARD_ID,
-  VIRTUAL_CONSUMPTION_CARD_NAME,
-} from '../domain/consumption';
+import { VIRTUAL_CONSUMPTION_CARD_ID, VIRTUAL_CONSUMPTION_CARD_NAME } from '../domain/consumption';
 
 // 卡类型：储蓄卡 / 消费卡 / 基金
 export type CardType = 'SAVINGS' | 'SPEND' | 'FUND';
@@ -96,6 +93,15 @@ export interface SavingsLogRow {
   createdAt: number; // 时间戳
 }
 
+// 卡片期初余额修改流水（全局审计日志，不从属于某个月）
+export interface InitialBalanceLogRow {
+  id: string;
+  cardId: string;
+  previousAmount: number; // cents（修改前）
+  amount: number; // cents（修改后）
+  createdAt: number; // 时间戳
+}
+
 // 旧版消费卡每月额度，仅用于旧备份/迁移的输入类型。
 export interface SpendQuotaRow {
   id: string;
@@ -133,6 +139,7 @@ export class BookkeepingDB extends Dexie {
   categories!: Table<CategoryRow, string>;
   savingsEntries!: Table<SavingsEntryRow, string>;
   savingsLogs!: Table<SavingsLogRow, string>;
+  initialBalanceLogs!: Table<InitialBalanceLogRow, string>;
   consumptionBudgets!: Table<ConsumptionBudgetRow, string>;
 
   constructor(name = 'bookkeeping') {
@@ -232,7 +239,9 @@ export class BookkeepingDB extends Dexie {
           .filter((card) => card.type === 'SAVINGS')
           .sort((a, b) => a.sortOrder - b.sortOrder || a.createdAt - b.createdAt);
         const defaultSavings = savings.find((card) => card.isDefault) ?? savings[0];
-        const oldBudgets = (await tx.table('consumptionBudgets').toArray()) as ConsumptionBudgetRow[];
+        const oldBudgets = (await tx
+          .table('consumptionBudgets')
+          .toArray()) as ConsumptionBudgetRow[];
         const legacyQuotas = (await tx.table('spendQuotas').toArray()) as SpendQuotaRow[];
 
         const aggregated = new Map<string, ConsumptionBudgetRow>();
@@ -298,6 +307,11 @@ export class BookkeepingDB extends Dexie {
     // Add uniqueness only after v9 has collapsed possible duplicates.
     this.version(10).stores({
       consumptionBudgets: 'id, &[savingsCardId+month], month',
+    });
+
+    // v11：期初余额每次实际变更都保留修改前后金额与时间戳。
+    this.version(11).stores({
+      initialBalanceLogs: 'id, cardId, [cardId+createdAt], createdAt',
     });
 
     // Fresh installs skip upgrade callbacks, so seed the same internal account on populate.

@@ -5,9 +5,10 @@ import {
   useBudgetTransfer,
   useCards,
   useDeleteBudgetDetail,
+  useInitialBalanceLogs,
   useUpdateCard,
 } from '../api/hooks';
-import { addMonths, currentMonthStr, fmtMoney } from '../lib/format';
+import { addMonths, currentMonthStr, fmtDateTime, fmtMoney } from '../lib/format';
 import { useCardSlide } from '../lib/useCardSlide';
 
 const KIND_LABEL: Record<'IN' | 'OUT' | 'EXPENSE' | 'TRANSFER_IN', string> = {
@@ -25,6 +26,7 @@ export function BudgetCardPage() {
   const update = useUpdateCard();
   const budgetTransfer = useBudgetTransfer();
   const delDetail = useDeleteBudgetDetail();
+  const initialLogs = useInitialBalanceLogs(id);
 
   const [month, setMonth] = useState(currentMonthStr());
   const view = useBudgetCurrentMonth(id, month);
@@ -74,90 +76,135 @@ export function BudgetCardPage() {
           className="swipe-card fill"
           style={{ transform: `translateX(${drag}px)`, transition: instant ? 'none' : undefined }}
         >
-        <div className="row-between" style={{ marginBottom: 6 }}>
-          <button className="ghost" onPointerDown={(e) => e.stopPropagation()} onClick={() => setMonth((m) => addMonths(m, -1))}>
-            ‹
-          </button>
-          <strong style={{ fontSize: 18 }}>{month}</strong>
-          <button className="ghost" onPointerDown={(e) => e.stopPropagation()} onClick={() => setMonth((m) => addMonths(m, 1))}>
-            ›
-          </button>
-        </div>
-        <div className="swipe-balance">
-          <span className="muted">预期余额</span>
-          <div className="big">{v ? fmtMoney(v.expected) : '—'}</div>
-          <div className="muted">期初 {card ? fmtMoney(card.initialBalance) : '—'}</div>
-        </div>
-
-        {/* 记收支 / 调出 按钮 */}
-        <div className="row-between mt" style={{ gap: 8 }} onPointerDown={(e) => e.stopPropagation()}>
-          <button className="primary" style={{ flex: 1 }} onClick={() => navigate(`/budget/${id}/edit?month=${month}`)}>
-            记收支
-          </button>
-          <button style={{ flex: 1 }} onClick={() => setShowTransfer((s) => !s)}>
-            调出
-          </button>
-        </div>
-        {showTransfer && (
-          <div className="card mt" onPointerDown={(e) => e.stopPropagation()}>
-            <div className="field">
-              <label>调出到（另一张储蓄卡）</label>
-              <select value={peer} onChange={(e) => setPeer(e.target.value)}>
-                <option value="">选择储蓄卡</option>
-                {savings.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="row-between" style={{ gap: 8 }}>
-              <input type="number" step="0.01" placeholder="金额" value={tAmt} onChange={(e) => setTAmt(e.target.value)} />
-              <button
-                className="primary"
-                style={{ width: 'auto', padding: '11px 18px', whiteSpace: 'nowrap' }}
-                onClick={doTransfer}
-                disabled={!peer || !tAmt}
-              >
-                确定
-              </button>
-            </div>
-            <div className="muted mt">对方卡的 {month} 会自动生成一条「调入」。</div>
+          <div className="row-between" style={{ marginBottom: 6 }}>
+            <button
+              className="ghost"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={() => setMonth((m) => addMonths(m, -1))}
+            >
+              ‹
+            </button>
+            <strong style={{ fontSize: 18 }}>{month}</strong>
+            <button
+              className="ghost"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={() => setMonth((m) => addMonths(m, 1))}
+            >
+              ›
+            </button>
           </div>
-        )}
+          <div className="swipe-balance">
+            <span className="muted">预期余额</span>
+            <div className="big">{v ? fmtMoney(v.expected) : '—'}</div>
+            <div className="muted">期初 {card ? fmtMoney(card.initialBalance) : '—'}</div>
+          </div>
 
-        <div className="divider" />
-        <div className="detail-sub">本月预算明细</div>
-        <div className="detail-flow">
-          {v && v.details.length ? (
-            v.details.map((d) => (
-              <div className="tx" key={d.id}>
-                <div>
-                  <div>{d.label}</div>
-                  <div className="meta">
-                    {KIND_LABEL[d.kind]}
-                    {d.category && d.category !== d.label ? ` · ${d.category}` : ''}
+          {/* 记收支 / 调出 按钮 */}
+          <div
+            className="row-between mt"
+            style={{ gap: 8 }}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <button
+              className="primary"
+              style={{ flex: 1 }}
+              onClick={() => navigate(`/budget/${id}/edit?month=${month}`)}
+            >
+              记收支
+            </button>
+            <button style={{ flex: 1 }} onClick={() => setShowTransfer((s) => !s)}>
+              调出
+            </button>
+          </div>
+          {showTransfer && (
+            <div className="card mt" onPointerDown={(e) => e.stopPropagation()}>
+              <div className="field">
+                <label>调出到（另一张储蓄卡）</label>
+                <select value={peer} onChange={(e) => setPeer(e.target.value)}>
+                  <option value="">选择储蓄卡</option>
+                  {savings.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="row-between" style={{ gap: 8 }}>
+                <input
+                  type="number"
+                  step="0.01"
+                  placeholder="金额"
+                  value={tAmt}
+                  onChange={(e) => setTAmt(e.target.value)}
+                />
+                <button
+                  className="primary"
+                  style={{ width: 'auto', padding: '11px 18px', whiteSpace: 'nowrap' }}
+                  onClick={doTransfer}
+                  disabled={!peer || !tAmt}
+                >
+                  确定
+                </button>
+              </div>
+              <div className="muted mt">对方卡的 {month} 会自动生成一条「调入」。</div>
+            </div>
+          )}
+
+          <div className="divider" />
+          <div className="detail-sub">本月预算明细</div>
+          <div className="detail-flow">
+            {v && v.details.length ? (
+              v.details.map((d) => (
+                <div className="tx" key={d.id}>
+                  <div>
+                    <div>{d.label}</div>
+                    <div className="meta">
+                      {KIND_LABEL[d.kind]}
+                      {d.category && d.category !== d.label ? ` · ${d.category}` : ''}
+                    </div>
+                  </div>
+                  <div className="row-between">
+                    <span
+                      className={`amt ${d.kind === 'IN' || d.kind === 'TRANSFER_IN' ? 'in' : 'out'}`}
+                    >
+                      {d.kind === 'IN' || d.kind === 'TRANSFER_IN' ? '+' : '−'}
+                      {fmtMoney(d.amount)}
+                    </span>
+                    <button
+                      className="ghost"
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={() => delDetail.mutate(d.id)}
+                    >
+                      ✕
+                    </button>
                   </div>
                 </div>
-                <div className="row-between">
-                  <span className={`amt ${d.kind === 'IN' || d.kind === 'TRANSFER_IN' ? 'in' : 'out'}`}>
-                    {d.kind === 'IN' || d.kind === 'TRANSFER_IN' ? '+' : '−'}
-                    {fmtMoney(d.amount)}
-                  </span>
-                  <button className="ghost" onPointerDown={(e) => e.stopPropagation()} onClick={() => delDetail.mutate(d.id)}>
-                    ✕
-                  </button>
-                </div>
-              </div>
-            ))
-          ) : (
-            <div className="muted">本月还没有预算明细</div>
-          )}
-        </div>
+              ))
+            ) : (
+              <div className="muted">本月还没有预算明细</div>
+            )}
 
-        <div className="swipe-hint" style={{ paddingTop: 14 }}>
-          ‹ 右滑上一月 · 左滑下一月 ›
-        </div>
+            <div className="divider" />
+            <div className="detail-sub">期初修改记录</div>
+            {(initialLogs.data ?? []).length ? (
+              initialLogs.data?.map((log) => (
+                <div className="tx" key={log.id}>
+                  <div>
+                    <div>
+                      {fmtMoney(log.previousAmount)} → {fmtMoney(log.amount)}
+                    </div>
+                    <div className="meta">{fmtDateTime(log.createdAt)}</div>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="muted">还没有期初修改记录</div>
+            )}
+          </div>
+
+          <div className="swipe-hint" style={{ paddingTop: 14 }}>
+            ‹ 右滑上一月 · 左滑下一月 ›
+          </div>
         </div>
       </div>
     </div>

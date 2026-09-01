@@ -16,6 +16,7 @@ import { spendStatsService } from '../services/spendStats.service';
 import { reconciliationService } from '../services/reconciliation.service';
 import { incomeCompareService } from '../services/incomeCompare.service';
 import { categoriesService } from '../services/categories';
+import { initialBalanceLogService } from '../services/initialBalanceLog.service';
 
 // ---- 失效所有受余额影响的视图 ----
 function useInvalidateLedger() {
@@ -33,6 +34,7 @@ function useInvalidateLedger() {
     qc.invalidateQueries({ queryKey: ['consumptionBudget'] });
     qc.invalidateQueries({ queryKey: ['reconciliation'] });
     qc.invalidateQueries({ queryKey: ['incomeCompare'] });
+    qc.invalidateQueries({ queryKey: ['initialBalanceLogs'] });
   };
 }
 
@@ -209,19 +211,35 @@ export function useAddBudgetDetail() {
 export function useBudgetTransfer() {
   const inv = useInvalidateLedger();
   return useMutation({
-    mutationFn: (body: { cardId: string; peerCardId: string; month: string; amount: string; note?: string }) =>
-      budgetPlanService.transfer(body),
+    mutationFn: (body: {
+      cardId: string;
+      peerCardId: string;
+      month: string;
+      amount: string;
+      note?: string;
+    }) => budgetPlanService.transfer(body),
     onSuccess: inv,
   });
 }
 export function useDeleteBudgetDetail() {
   const inv = useInvalidateLedger();
-  return useMutation({ mutationFn: (id: string) => budgetPlanService.deleteDetail(id), onSuccess: inv });
+  return useMutation({
+    mutationFn: (id: string) => budgetPlanService.deleteDetail(id),
+    onSuccess: inv,
+  });
 }
 export function useBudgetCurrentMonth(cardId: string, month: string) {
   return useQuery({
     queryKey: ['budgetPlan', 'current', cardId, month],
     queryFn: () => budgetPlanService.currentMonthView(cardId, month),
+    enabled: !!cardId,
+  });
+}
+
+export function useInitialBalanceLogs(cardId: string) {
+  return useQuery({
+    queryKey: ['initialBalanceLogs', cardId],
+    queryFn: () => initialBalanceLogService.list(cardId),
     enabled: !!cardId,
   });
 }
@@ -266,13 +284,20 @@ export function useAddSavingsEntry() {
 }
 export function useRemoveSavingsEntry() {
   const inv = useInvalidateLedger();
-  return useMutation({ mutationFn: (id: string) => savingsEntryService.remove(id), onSuccess: inv });
+  return useMutation({
+    mutationFn: (id: string) => savingsEntryService.remove(id),
+    onSuccess: inv,
+  });
 }
 export function useSetSavingsEntry() {
   const inv = useInvalidateLedger();
   return useMutation({
-    mutationFn: (body: { cardId: string; month: string; kind: 'INCOME' | 'EXCESS'; amount: string }) =>
-      savingsEntryService.setEntry(body),
+    mutationFn: (body: {
+      cardId: string;
+      month: string;
+      kind: 'INCOME' | 'EXCESS';
+      amount: string;
+    }) => savingsEntryService.setEntry(body),
     onSuccess: inv,
   });
 }
@@ -309,14 +334,21 @@ export function useSavingsLogs(cardId: string, month: string) {
 export function useAddSavingsLog() {
   const inv = useInvalidateLedger();
   return useMutation({
-    mutationFn: (body: { cardId: string; month: string; field: 'AMOUNT' | 'INCOME' | 'EXCESS'; amount: string }) =>
-      savingsLogService.add(body),
+    mutationFn: (body: {
+      cardId: string;
+      month: string;
+      field: 'AMOUNT' | 'INCOME' | 'EXCESS';
+      amount: string;
+    }) => savingsLogService.add(body),
     onSuccess: inv,
   });
 }
 export function useRemoveSavings() {
   const inv = useInvalidateLedger();
-  return useMutation({ mutationFn: (id: string) => savingsActualService.remove(id), onSuccess: inv });
+  return useMutation({
+    mutationFn: (id: string) => savingsActualService.remove(id),
+    onSuccess: inv,
+  });
 }
 export function useClearSavingsMonth() {
   const inv = useInvalidateLedger();
@@ -327,7 +359,10 @@ export function useClearSavingsMonth() {
   });
 }
 export function useSavingsSummary() {
-  return useQuery({ queryKey: ['savings', 'summary'], queryFn: () => savingsSummaryService.list() });
+  return useQuery({
+    queryKey: ['savings', 'summary'],
+    queryFn: () => savingsSummaryService.list(),
+  });
 }
 export function useSavingsSummaryAsOf(refMonth: string) {
   return useQuery({
@@ -338,10 +373,16 @@ export function useSavingsSummaryAsOf(refMonth: string) {
 
 // ---- 全局消费账户的按月/期间视图 ----
 export function useSpendMonth(month: string) {
-  return useQuery({ queryKey: ['spend', 'month', month], queryFn: () => spendService.monthView(month) });
+  return useQuery({
+    queryKey: ['spend', 'month', month],
+    queryFn: () => spendService.monthView(month),
+  });
 }
 export function useSpendPeriod(prefix: string) {
-  return useQuery({ queryKey: ['spend', 'period', prefix], queryFn: () => spendService.periodView(prefix) });
+  return useQuery({
+    queryKey: ['spend', 'period', prefix],
+    queryFn: () => spendService.periodView(prefix),
+  });
 }
 // ---- 基金：直填本金/市值 ----
 export function useSetFund() {
@@ -355,12 +396,18 @@ export function useSetFund() {
 
 // ---- 消费分类统计 ----
 export function useSpendStats(prefix: string) {
-  return useQuery({ queryKey: ['spend', 'stats', prefix], queryFn: () => spendStatsService.byCategory(prefix) });
+  return useQuery({
+    queryKey: ['spend', 'stats', prefix],
+    queryFn: () => spendStatsService.byCategory(prefix),
+  });
 }
 
 // ---- 收入对比 ----
 export function useIncomeCompare(prefix: string) {
-  return useQuery({ queryKey: ['incomeCompare', prefix], queryFn: () => incomeCompareService.compute(prefix) });
+  return useQuery({
+    queryKey: ['incomeCompare', prefix],
+    queryFn: () => incomeCompareService.compute(prefix),
+  });
 }
 
 // ---- 对账 ----

@@ -6,16 +6,14 @@ import {
   type CardRow,
   type CategoryRow,
   type ConsumptionBudgetRow,
+  type InitialBalanceLogRow,
   type SavingsActualRow,
   type SavingsEntryRow,
   type SavingsLogRow,
   type SpendQuotaRow,
   type TransactionRow,
 } from '../db/db';
-import {
-  VIRTUAL_CONSUMPTION_CARD_ID,
-  VIRTUAL_CONSUMPTION_CARD_NAME,
-} from '../domain/consumption';
+import { VIRTUAL_CONSUMPTION_CARD_ID, VIRTUAL_CONSUMPTION_CARD_NAME } from '../domain/consumption';
 
 type LegacyConsumptionBudgetRow = ConsumptionBudgetRow & { consumptionCardId?: string };
 
@@ -33,10 +31,14 @@ export interface BackupData {
   categories?: CategoryRow[];
   savingsEntries?: SavingsEntryRow[];
   savingsLogs?: SavingsLogRow[];
+  initialBalanceLogs?: InitialBalanceLogRow[];
   consumptionBudgets?: LegacyConsumptionBudgetRow[];
 }
 
-export interface NormalizedBackupData extends Omit<BackupData, 'consumptionBudgets' | 'spendQuotas'> {
+export interface NormalizedBackupData extends Omit<
+  BackupData,
+  'consumptionBudgets' | 'spendQuotas'
+> {
   consumptionBudgets: ConsumptionBudgetRow[];
 }
 
@@ -104,12 +106,9 @@ export function normalizeBackupData(data: BackupData): NormalizedBackupData {
 
   return {
     app: 'bookkeeping',
-    version: 4,
+    version: 5,
     exportedAt: data.exportedAt,
-    cards: [
-      ...data.cards.filter((card) => card.type !== 'SPEND'),
-      virtualCard(),
-    ],
+    cards: [...data.cards.filter((card) => card.type !== 'SPEND'), virtualCard()],
     budgetSnapshots: data.budgetSnapshots ?? [],
     budgetLines: data.budgetLines ?? [],
     transactions: (data.transactions ?? []).map((row) =>
@@ -122,6 +121,7 @@ export function normalizeBackupData(data: BackupData): NormalizedBackupData {
     categories: data.categories ?? [],
     savingsEntries: data.savingsEntries ?? [],
     savingsLogs: data.savingsLogs ?? [],
+    initialBalanceLogs: data.initialBalanceLogs ?? [],
     consumptionBudgets: [...aggregated.values()],
   };
 }
@@ -138,6 +138,7 @@ export const backupService = {
       categories,
       savingsEntries,
       savingsLogs,
+      initialBalanceLogs,
       consumptionBudgets,
     ] = await Promise.all([
       db.cards.toArray(),
@@ -149,11 +150,12 @@ export const backupService = {
       db.categories.toArray(),
       db.savingsEntries.toArray(),
       db.savingsLogs.toArray(),
+      db.initialBalanceLogs.toArray(),
       db.consumptionBudgets.toArray(),
     ]);
     return {
       app: 'bookkeeping',
-      version: 4,
+      version: 5,
       exportedAt: new Date().toISOString(),
       cards,
       budgetSnapshots,
@@ -164,6 +166,7 @@ export const backupService = {
       categories,
       savingsEntries,
       savingsLogs,
+      initialBalanceLogs,
       consumptionBudgets,
     };
   },
@@ -199,6 +202,7 @@ export const backupService = {
         db.categories,
         db.savingsEntries,
         db.savingsLogs,
+        db.initialBalanceLogs,
         db.consumptionBudgets,
       ],
       async () => {
@@ -212,6 +216,7 @@ export const backupService = {
           db.categories.clear(),
           db.savingsEntries.clear(),
           db.savingsLogs.clear(),
+          db.initialBalanceLogs.clear(),
           db.consumptionBudgets.clear(),
         ]);
         await db.cards.bulkAdd(data.cards);
@@ -223,6 +228,7 @@ export const backupService = {
         await db.categories.bulkAdd(data.categories ?? []);
         await db.savingsEntries.bulkAdd(data.savingsEntries ?? []);
         await db.savingsLogs.bulkAdd(data.savingsLogs ?? []);
+        await db.initialBalanceLogs.bulkAdd(data.initialBalanceLogs ?? []);
         await db.consumptionBudgets.bulkAdd(data.consumptionBudgets);
       },
     );
@@ -249,6 +255,7 @@ export const backupService = {
         db.savingsActuals,
         db.savingsEntries,
         db.savingsLogs,
+        db.initialBalanceLogs,
         db.consumptionBudgets,
       ],
       async () => {
@@ -264,6 +271,7 @@ export const backupService = {
           db.savingsActuals.clear(),
           db.savingsEntries.clear(),
           db.savingsLogs.clear(),
+          db.initialBalanceLogs.clear(),
           db.consumptionBudgets.clear(),
         ]);
         await db.cards.put(virtualCard());

@@ -23,9 +23,7 @@ async function orderedRows(): Promise<CardRow[]> {
 
 export const cardsService = {
   async list(): Promise<Card[]> {
-    return (await orderedRows())
-      .filter((row) => row.id !== VIRTUAL_CONSUMPTION_CARD_ID)
-      .map(toDTO);
+    return (await orderedRows()).filter((row) => row.id !== VIRTUAL_CONSUMPTION_CARD_ID).map(toDTO);
   },
 
   async create(input: {
@@ -75,8 +73,23 @@ export const cardsService = {
       patch.name = name;
     }
     if (input.type !== undefined) patch.type = input.type;
-    if (input.initialBalance !== undefined) patch.initialBalance = toCents(input.initialBalance);
-    await db.cards.update(id, patch);
+    const nextInitial =
+      input.initialBalance === undefined ? undefined : toCents(input.initialBalance);
+    if (nextInitial !== undefined) patch.initialBalance = nextInitial;
+    await db.transaction('rw', [db.cards, db.initialBalanceLogs], async () => {
+      const current = await db.cards.get(id);
+      if (!current) throw new Error('卡片不存在');
+      if (nextInitial !== undefined && nextInitial !== current.initialBalance) {
+        await db.initialBalanceLogs.add({
+          id: newId(),
+          cardId: id,
+          previousAmount: current.initialBalance,
+          amount: nextInitial,
+          createdAt: nowTs(),
+        });
+      }
+      await db.cards.update(id, patch);
+    });
     return toDTO({ ...existing, ...patch });
   },
 
@@ -88,7 +101,10 @@ export const cardsService = {
     const asCard = await db.transactions.where('cardId').equals(id).count();
     const asPeer = await db.transactions.filter((t) => t.peerCardId === id).count();
     if (asCard + asPeer > 0) throw new Error('该卡存在关联流水，不能删除');
-    await db.cards.delete(id);
+    await db.transaction('rw', [db.cards, db.initialBalanceLogs], async () => {
+      await db.initialBalanceLogs.where('cardId').equals(id).delete();
+      await db.cards.delete(id);
+    });
     return { ok: true };
   },
 
