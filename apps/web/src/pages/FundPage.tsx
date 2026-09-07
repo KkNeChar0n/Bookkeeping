@@ -1,85 +1,94 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useCardViews, useCards } from '../api/hooks';
+import { useCards, useFundPositionsAsOf } from '../api/hooks';
 import { CreateCardForm } from '../components/CreateCardForm';
-import { fmtMoney, fmtSigned } from '../lib/format';
+import { currentMonthStr, fmtMoney, fmtSigned } from '../lib/format';
 
 export function FundPage() {
   const cards = useCards();
-  const views = useCardViews();
   const navigate = useNavigate();
-  const funds = (cards.data ?? []).filter((c) => c.type === 'FUND');
-  const [openId, setOpenId] = useState<string | null>(null);
+  const [month, setMonth] = useState(currentMonthStr());
+  const positions = useFundPositionsAsOf(month);
   const [showCreate, setShowCreate] = useState(false);
-
-  useEffect(() => {
-    if (funds.length && !funds.find((c) => c.id === openId)) setOpenId(funds[0].id);
-  }, [funds, openId]);
-
-  const viewOf = (id: string) => views.data?.find((v) => v.cardId === id);
+  const funds = positions.data ?? [];
 
   return (
     <div>
       <h1 className="page-title">基金</h1>
       <div className="muted date-hint" style={{ textAlign: 'left', marginBottom: 12 }}>
-        每张基金记两个数：累计投入(本金) 和 当前市值。盈亏自动算。
+        本金由基金资金卡的注资累计生成；这里只按月记录月末市值。
+      </div>
+      <div className="card">
+        <div className="field" style={{ margin: 0 }}>
+          <label>查看月份</label>
+          <input type="month" value={month} onChange={(event) => setMonth(event.target.value)} />
+        </div>
       </div>
 
       {funds.length ? (
-        <div className="stack">
-          {funds.map((c) => {
-            const v = viewOf(c.id);
-            const open = openId === c.id;
-            const profit = v ? Number(v.profit) : 0;
+        <div className="stack mt">
+          {funds.map((fund) => {
+            const profit = Number(fund.profit ?? 0);
             return (
-              <div key={c.id} className="stack-item">
-                <div className="stack-head" onClick={() => setOpenId(open ? null : c.id)}>
+              <div
+                key={fund.fundCardId}
+                className="stack-item open"
+                onClick={() => navigate(`/card/${fund.fundCardId}?month=${month}`)}
+              >
+                <div className="stack-head">
                   <div className="stack-name">
-                    <span>{c.name}</span>
+                    <span>{fund.fundName}</span>
                     <span className="type-tag">基金</span>
                   </div>
-                  <div className="stack-nums">
-                    <span>{fmtMoney(v?.balance ?? '0')}</span>
-                    <span className={profit >= 0 ? 'pos' : 'neg'}>{fmtSigned(v?.profit ?? '0')}</span>
-                    <span className="muted">{open ? '▾' : '▸'}</span>
-                  </div>
+                  <span className="muted">编辑 ›</span>
                 </div>
-                {open && v && (
-                  <div className="card-detail">
-                    <div className="kv">
-                      <span>市值</span>
-                      <b>{fmtMoney(v.balance)}</b>
-                    </div>
-                    <div className="kv">
-                      <span>本金</span>
-                      <span>{fmtMoney(v.principal)}</span>
-                    </div>
-                    <div className="kv">
-                      <span>盈亏</span>
-                      <b className={profit >= 0 ? 'pos' : 'neg'}>
-                        {fmtSigned(v.profit)}
-                        {v.profitPct !== null ? `（${v.profitPct > 0 ? '+' : ''}${v.profitPct}%）` : ''}
-                      </b>
-                    </div>
-                    <button className="mini mt" onClick={() => navigate(`/card/${c.id}`)}>
-                      更新本金 / 市值
-                    </button>
+                <div className="card-detail">
+                  <div className="kv">
+                    <span>月末市值</span>
+                    <b>{fund.value === null ? '未填' : fmtMoney(fund.value)}</b>
                   </div>
-                )}
+                  <div className="kv">
+                    <span>截至本月本金</span>
+                    <span>{fmtMoney(fund.principal)}</span>
+                  </div>
+                  <div className="kv">
+                    <span>盈亏</span>
+                    {fund.profit === null ? (
+                      <span className="muted">—</span>
+                    ) : (
+                      <b className={profit >= 0 ? 'pos' : 'neg'}>
+                        {fmtSigned(fund.profit)}
+                        {fund.profitPct !== null
+                          ? `（${fund.profitPct > 0 ? '+' : ''}${fund.profitPct}%）`
+                          : ''}
+                      </b>
+                    )}
+                  </div>
+                  {fund.valueMonth && fund.valueMonth !== month && (
+                    <div className="muted" style={{ fontSize: 12 }}>
+                      市值沿用 {fund.valueMonth} 的最近快照
+                    </div>
+                  )}
+                </div>
               </div>
             );
           })}
         </div>
       ) : (
-        <div className="card muted">还没有基金。</div>
+        <div className="card muted mt">还没有基金。</div>
       )}
 
       <div className="spacer" />
-      <button onClick={() => setShowCreate((s) => !s)}>{showCreate ? '收起' : '＋ 新建基金'}</button>
+      <button onClick={() => setShowCreate((current) => !current)}>
+        {showCreate ? '收起' : '＋ 新建基金'}
+      </button>
       {showCreate && (
         <div className="mt">
           <CreateCardForm type="FUND" placeholder="如：沪深300定投" />
         </div>
+      )}
+      {(cards.data ?? []).every((card) => card.savingsPurpose !== 'FUND_POOL') && (
+        <div className="warn mt">还没有基金资金卡，可在“记账 → 设置”中创建。</div>
       )}
     </div>
   );

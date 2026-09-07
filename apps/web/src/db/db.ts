@@ -4,6 +4,7 @@ import { VIRTUAL_CONSUMPTION_CARD_ID, VIRTUAL_CONSUMPTION_CARD_NAME } from '../d
 
 // 卡类型：储蓄卡 / 消费卡 / 基金
 export type CardType = 'SAVINGS' | 'SPEND' | 'FUND';
+export type SavingsPurpose = 'FUND_POOL';
 
 // 本地存储实体：金额一律以“分”(整数)存储
 export interface CardRow {
@@ -14,6 +15,7 @@ export interface CardRow {
   isDefault: number; // 0/1（Dexie 索引友好）
   sortOrder: number;
   createdAt: number;
+  savingsPurpose?: SavingsPurpose; // 储蓄卡专用用途；FUND_POOL=基金资金卡
   // 基金专用：直接填的两个数（分）
   fundPrincipal?: number; // 累计投入本金
   fundValue?: number; // 当前市值
@@ -102,6 +104,26 @@ export interface InitialBalanceLogRow {
   createdAt: number; // 时间戳
 }
 
+// 基金资金卡在某月向基金注资；同次提交共享 batchId，可整批撤销。
+export interface FundContributionRow {
+  id: string;
+  batchId: string;
+  sourceCardId: string;
+  fundCardId: string;
+  month: string; // YYYY-MM
+  amount: number; // cents（正数）
+  createdAt: number;
+}
+
+// 基金月末市值快照；同一基金同一月份唯一。
+export interface FundSnapshotRow {
+  id: string;
+  fundCardId: string;
+  month: string; // YYYY-MM
+  value: number; // cents
+  updatedAt: number;
+}
+
 // 旧版消费卡每月额度，仅用于旧备份/迁移的输入类型。
 export interface SpendQuotaRow {
   id: string;
@@ -140,6 +162,8 @@ export class BookkeepingDB extends Dexie {
   savingsEntries!: Table<SavingsEntryRow, string>;
   savingsLogs!: Table<SavingsLogRow, string>;
   initialBalanceLogs!: Table<InitialBalanceLogRow, string>;
+  fundContributions!: Table<FundContributionRow, string>;
+  fundSnapshots!: Table<FundSnapshotRow, string>;
   consumptionBudgets!: Table<ConsumptionBudgetRow, string>;
 
   constructor(name = 'bookkeeping') {
@@ -313,6 +337,33 @@ export class BookkeepingDB extends Dexie {
     this.version(11).stores({
       initialBalanceLogs: 'id, cardId, [cardId+createdAt], createdAt',
     });
+
+    // v12：基金资金卡、可撤销注资和基金月末市值快照。
+    this.version(12)
+      .stores({
+        cards: 'id, sortOrder, isDefault, type, savingsPurpose',
+        fundContributions:
+          'id, batchId, sourceCardId, fundCardId, month, [sourceCardId+month], [fundCardId+month]',
+        fundSnapshots: 'id, &[fundCardId+month], fundCardId, month',
+      })
+      .upgrade(async (tx) => {
+        const now = new Date();
+        const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+        const funds = ((await tx.table('cards').toArray()) as CardRow[]).filter(
+          (card) => card.type === 'FUND',
+        );
+        const snapshots = funds.map(
+          (fund) =>
+            ({
+              id: crypto.randomUUID(),
+              fundCardId: fund.id,
+              month,
+              value: fund.fundValue ?? fund.initialBalance,
+              updatedAt: Date.now(),
+            }) satisfies FundSnapshotRow,
+        );
+        if (snapshots.length) await tx.table('fundSnapshots').bulkAdd(snapshots);
+      });
 
     // Fresh installs skip upgrade callbacks, so seed the same internal account on populate.
     this.on('populate', () =>

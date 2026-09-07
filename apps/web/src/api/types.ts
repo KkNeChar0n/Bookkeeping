@@ -1,4 +1,5 @@
 export type CardType = 'SAVINGS' | 'SPEND' | 'FUND';
+export type SavingsPurpose = 'FUND_POOL';
 
 export const CARD_TYPE_LABEL: Record<CardType, string> = {
   SAVINGS: '储蓄卡',
@@ -13,6 +14,7 @@ export interface Card {
   initialBalance: string;
   isDefault: boolean;
   sortOrder: number;
+  savingsPurpose?: SavingsPurpose;
   fundPrincipal?: string;
   fundValue?: string;
 }

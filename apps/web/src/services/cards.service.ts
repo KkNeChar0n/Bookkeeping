@@ -1,4 +1,4 @@
-import { db, newId, nowTs, type CardRow, type CardType } from '../db/db';
+import { db, newId, nowTs, type CardRow, type CardType, type SavingsPurpose } from '../db/db';
 import { fromCents, toCents } from '../domain/money';
 import type { Card } from '../api/types';
 import { VIRTUAL_CONSUMPTION_CARD_ID } from '../domain/consumption';
@@ -11,6 +11,7 @@ function toDTO(c: CardRow): Card {
     initialBalance: fromCents(c.initialBalance),
     isDefault: c.isDefault === 1,
     sortOrder: c.sortOrder,
+    savingsPurpose: c.savingsPurpose,
     fundPrincipal: fromCents(c.fundPrincipal ?? c.initialBalance),
     fundValue: fromCents(c.fundValue ?? c.initialBalance),
   };
@@ -31,6 +32,7 @@ export const cardsService = {
     type?: CardType;
     initialBalance?: string;
     isDefault?: boolean;
+    savingsPurpose?: SavingsPurpose;
   }): Promise<Card> {
     const name = input.name.trim();
     if (!name) throw new Error('卡片名称不能为空');
@@ -39,6 +41,14 @@ export const cardsService = {
     const initial = toCents(input.initialBalance ?? '0');
     const type = input.type ?? 'SAVINGS';
     if (type === 'SPEND') throw new Error('消费账户由系统统一管理');
+    if (input.savingsPurpose && type !== 'SAVINGS') throw new Error('只有储蓄卡可以设置资金用途');
+    if (input.savingsPurpose === 'FUND_POOL') {
+      const exists = (await db.cards.toArray()).some(
+        (card) => card.type === 'SAVINGS' && card.savingsPurpose === 'FUND_POOL',
+      );
+      if (exists) throw new Error('只能创建一张基金资金卡');
+    }
+    const ts = nowTs();
     const row: CardRow = {
       id: newId(),
       name,
@@ -46,15 +56,27 @@ export const cardsService = {
       initialBalance: initial,
       isDefault: input.isDefault ? 1 : 0,
       sortOrder,
-      createdAt: nowTs(),
+      createdAt: ts,
+      ...(input.savingsPurpose ? { savingsPurpose: input.savingsPurpose } : {}),
       // 基金：本金/市值起点 = 初始
       ...(type === 'FUND' ? { fundPrincipal: initial, fundValue: initial } : {}),
     };
-    await db.transaction('rw', db.cards, async () => {
+    await db.transaction('rw', [db.cards, db.fundSnapshots], async () => {
       if (input.isDefault) {
         await db.cards.toCollection().modify({ isDefault: 0 });
       }
       await db.cards.add(row);
+      if (type === 'FUND') {
+        const now = new Date();
+        const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+        await db.fundSnapshots.add({
+          id: newId(),
+          fundCardId: row.id,
+          month,
+          value: initial,
+          updatedAt: ts,
+        });
+      }
     });
     return toDTO(row);
   },
@@ -98,26 +120,60 @@ export const cardsService = {
     if (!existing) throw new Error('卡片不存在');
     if (id === VIRTUAL_CONSUMPTION_CARD_ID) throw new Error('消费账户不可删除');
     if (existing.isDefault === 1) throw new Error('默认卡不可删除，请先设置其他默认卡');
-    const asCard = await db.transactions.where('cardId').equals(id).count();
-    const asPeer = await db.transactions.filter((t) => t.peerCardId === id).count();
-    if (asCard + asPeer > 0) throw new Error('该卡存在关联流水，不能删除');
-    await db.transaction('rw', [db.cards, db.initialBalanceLogs], async () => {
-      await db.initialBalanceLogs.where('cardId').equals(id).delete();
-      await db.cards.delete(id);
-    });
-    return { ok: true };
-  },
+    await db.transaction(
+      'rw',
+      [
+        db.cards,
+        db.budgetLines,
+        db.transactions,
+        db.budgetDetails,
+        db.savingsActuals,
+        db.savingsEntries,
+        db.savingsLogs,
+        db.initialBalanceLogs,
+        db.consumptionBudgets,
+        db.fundContributions,
+        db.fundSnapshots,
+      ],
+      async () => {
+        const transactions = await db.transactions.toArray();
+        const affectedGroups = new Set(
+          transactions
+            .filter((row) => row.cardId === id || row.peerCardId === id)
+            .map((row) => row.transferGroupId)
+            .filter((group): group is string => !!group),
+        );
+        const transactionIds = transactions
+          .filter(
+            (row) =>
+              row.cardId === id ||
+              row.peerCardId === id ||
+              (!!row.transferGroupId && affectedGroups.has(row.transferGroupId)),
+          )
+          .map((row) => row.id);
+        const budgetDetails = await db.budgetDetails.toArray();
+        const budgetDetailIds = budgetDetails
+          .filter((row) => row.cardId === id || row.peerCardId === id)
+          .map((row) => row.id);
 
-  /** 基金：直接设置本金 / 市值（两个数） */
-  async setFund(id: string, input: { principal?: string; value?: string }): Promise<Card> {
-    const existing = await db.cards.get(id);
-    if (!existing) throw new Error('卡片不存在');
-    if (id === VIRTUAL_CONSUMPTION_CARD_ID) throw new Error('消费账户不能设为默认卡');
-    const patch: Partial<CardRow> = {};
-    if (input.principal !== undefined) patch.fundPrincipal = toCents(input.principal);
-    if (input.value !== undefined) patch.fundValue = toCents(input.value);
-    await db.cards.update(id, patch);
-    return toDTO({ ...existing, ...patch });
+        await Promise.all([
+          transactionIds.length ? db.transactions.bulkDelete(transactionIds) : Promise.resolve(),
+          budgetDetailIds.length ? db.budgetDetails.bulkDelete(budgetDetailIds) : Promise.resolve(),
+          db.budgetLines.where('cardId').equals(id).delete(),
+          db.savingsActuals.where('cardId').equals(id).delete(),
+          db.savingsEntries.where('cardId').equals(id).delete(),
+          db.savingsLogs.where('cardId').equals(id).delete(),
+          db.initialBalanceLogs.where('cardId').equals(id).delete(),
+          db.consumptionBudgets.where('savingsCardId').equals(id).delete(),
+          db.fundContributions
+            .filter((row) => row.sourceCardId === id || row.fundCardId === id)
+            .delete(),
+          db.fundSnapshots.where('fundCardId').equals(id).delete(),
+        ]);
+        await db.cards.delete(id);
+      },
+    );
+    return { ok: true };
   },
 
   async setDefault(id: string): Promise<{ ok: true }> {

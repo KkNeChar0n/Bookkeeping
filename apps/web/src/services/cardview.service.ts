@@ -5,6 +5,7 @@ import { resolveCoverageSnapshot } from '../domain/balance';
 import { fromCents, toCents } from '../domain/money';
 import type { CardView } from '../api/types';
 import { VIRTUAL_CONSUMPTION_CARD_ID } from '../domain/consumption';
+import { fundService } from './fund.service';
 
 function todayISO(): string {
   const d = new Date();
@@ -31,31 +32,42 @@ export const cardViewService = {
       (coverage.snapshot?.lines ?? []).map((l) => [l.cardId, toCents(l.balance)]),
     );
 
-    return cards.map((c) => {
-      const a = agg.get(c.id)!;
-      const budgetBal = budgetByCard.get(c.id) ?? 0;
-      const isFund = c.type === 'FUND';
-      // 基金：本金/市值为直填的两个数；盈亏 = 市值 − 本金
-      const principal = isFund ? (c.fundPrincipal ?? c.initialBalance) : c.initialBalance + a.transferNet;
-      const value = isFund ? (c.fundValue ?? c.initialBalance) : a.balance;
-      const profit = isFund ? value - principal : a.adjust;
-      const profitPct = principal !== 0 ? Math.round((profit / principal) * 10000) / 100 : null;
-      const overspent = a.balance < budgetBal;
-      return {
-        cardId: c.id,
-        cardName: c.name,
-        type: c.type ?? 'SAVINGS',
-        balance: fromCents(value),
-        budgetBalance: fromCents(budgetBal),
-        diff: fromCents(value - budgetBal),
-        overspent,
-        income: fromCents(a.income),
-        spent: fromCents(a.spent),
-        principal: fromCents(principal),
-        profit: fromCents(profit),
-        profitPct,
-      };
-    });
+    return Promise.all(
+      cards.map(async (c) => {
+        const a = agg.get(c.id)!;
+        const budgetBal = budgetByCard.get(c.id) ?? 0;
+        const isFund = c.type === 'FUND';
+        const fundPosition = isFund
+          ? await fundService.positionAsOf(c.id, target.slice(0, 7))
+          : null;
+        const principal = fundPosition
+          ? toCents(fundPosition.principal)
+          : c.initialBalance + a.transferNet;
+        const value =
+          fundPosition?.value !== null && fundPosition
+            ? toCents(fundPosition.value)
+            : isFund
+              ? 0
+              : a.balance;
+        const profit = isFund ? value - principal : a.adjust;
+        const profitPct = principal !== 0 ? Math.round((profit / principal) * 10000) / 100 : null;
+        const overspent = a.balance < budgetBal;
+        return {
+          cardId: c.id,
+          cardName: c.name,
+          type: c.type ?? 'SAVINGS',
+          balance: fromCents(value),
+          budgetBalance: fromCents(budgetBal),
+          diff: fromCents(value - budgetBal),
+          overspent,
+          income: fromCents(a.income),
+          spent: fromCents(a.spent),
+          principal: fromCents(principal),
+          profit: fromCents(profit),
+          profitPct,
+        };
+      }),
+    );
   },
 
   async one(cardId: string, date?: string): Promise<CardView | undefined> {

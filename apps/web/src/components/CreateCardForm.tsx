@@ -1,9 +1,17 @@
 import { useState } from 'react';
 import { useCreateCard } from '../api/hooks';
-import type { CardType } from '../api/types';
+import type { CardType, SavingsPurpose } from '../api/types';
 
 /** Only user-managed cards can be created; consumption is a system account. */
-export function CreateCardForm({ type, placeholder }: { type: Exclude<CardType, 'SPEND'>; placeholder: string }) {
+export function CreateCardForm({
+  type,
+  placeholder,
+  savingsPurpose,
+}: {
+  type: Exclude<CardType, 'SPEND'>;
+  placeholder: string;
+  savingsPurpose?: SavingsPurpose;
+}) {
   const create = useCreateCard();
   const [name, setName] = useState('');
   const [initial, setInitial] = useState('');
@@ -16,6 +24,7 @@ export function CreateCardForm({ type, placeholder }: { type: Exclude<CardType, 
         name,
         type,
         initialBalance: initial || '0',
+        savingsPurpose,
       });
       setName('');
       setInitial('');
@@ -31,8 +40,14 @@ export function CreateCardForm({ type, placeholder }: { type: Exclude<CardType, 
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder={placeholder} />
       </div>
       <div className="field">
-        <label>{type === 'FUND' ? '初始市值/本金' : '初始余额'}</label>
-        <input type="number" step="0.01" value={initial} onChange={(e) => setInitial(e.target.value)} placeholder="0.00" />
+        <label>{type === 'FUND' ? '初始市值/本金' : '期初余额'}</label>
+        <input
+          type="number"
+          step="0.01"
+          value={initial}
+          onChange={(e) => setInitial(e.target.value)}
+          placeholder="0.00"
+        />
       </div>
       <button className="primary" onClick={add} disabled={!name.trim() || create.isPending}>
         添加

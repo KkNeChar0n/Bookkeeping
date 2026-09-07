@@ -10,8 +10,24 @@ import { reconciliationService } from './reconciliation.service';
 test('global budget views stay month-isolated while category stats preserve every OUT transaction', async () => {
   await db.open();
   await db.cards.bulkPut([
-    { id: 's1', name: '储蓄甲', type: 'SAVINGS', initialBalance: 0, isDefault: 1, sortOrder: 1, createdAt: 1 },
-    { id: 's2', name: '储蓄乙', type: 'SAVINGS', initialBalance: 0, isDefault: 0, sortOrder: 2, createdAt: 2 },
+    {
+      id: 's1',
+      name: '储蓄甲',
+      type: 'SAVINGS',
+      initialBalance: 0,
+      isDefault: 1,
+      sortOrder: 1,
+      createdAt: 1,
+    },
+    {
+      id: 's2',
+      name: '储蓄乙',
+      type: 'SAVINGS',
+      initialBalance: 0,
+      isDefault: 0,
+      sortOrder: 2,
+      createdAt: 2,
+    },
   ]);
   await db.consumptionBudgets.bulkAdd([
     { id: 'july', savingsCardId: 's1', month: '2026-07', amount: 218_095, updatedAt: 1 },
@@ -21,23 +37,66 @@ test('global budget views stay month-isolated while category stats preserve ever
   await db.savingsEntries.bulkAdd([
     { id: 'ex-a', cardId: 's1', month: '2026-08', kind: 'EXCESS', amount: 30_000, createdAt: 1 },
     { id: 'ex-b', cardId: 's2', month: '2026-08', kind: 'EXCESS', amount: 20_000, createdAt: 2 },
-    { id: 'ex-other', cardId: 's1', month: '2026-09', kind: 'EXCESS', amount: 99_999, createdAt: 3 },
+    {
+      id: 'ex-other',
+      cardId: 's1',
+      month: '2026-09',
+      kind: 'EXCESS',
+      amount: 99_999,
+      createdAt: 3,
+    },
   ]);
   await db.transactions.bulkAdd([
-    { id: 'consume', cardId: VIRTUAL_CONSUMPTION_CARD_ID, date: '2026-08-03', type: 'OUT', amount: -220_000, category: '餐饮', note: null, peerCardId: null, transferGroupId: null, createdAt: 1 },
-    { id: 'other-out', cardId: 's1', date: '2026-08-03', type: 'OUT', amount: -999_999, category: '其他支出', note: null, peerCardId: null, transferGroupId: null, createdAt: 2 },
+    {
+      id: 'consume',
+      cardId: VIRTUAL_CONSUMPTION_CARD_ID,
+      date: '2026-08-03',
+      type: 'OUT',
+      amount: -220_000,
+      category: '餐饮',
+      note: null,
+      peerCardId: null,
+      transferGroupId: null,
+      createdAt: 1,
+    },
+    {
+      id: 'other-out',
+      cardId: 's1',
+      date: '2026-08-03',
+      type: 'OUT',
+      amount: -999_999,
+      category: '其他支出',
+      note: null,
+      peerCardId: null,
+      transferGroupId: null,
+      createdAt: 2,
+    },
   ]);
 
   assert.deepEqual(await spendService.monthView('2026-08'), {
-    month: '2026-08', quota: '2000.00', hasQuota: true, spent: '2200.00', excess: '500.00',
-    remaining: '300.00', overspend: '200.00', overspent: true,
+    month: '2026-08',
+    quota: '2000.00',
+    hasQuota: true,
+    spent: '2200.00',
+    excess: '500.00',
+    remaining: '300.00',
+    overspend: '200.00',
+    overspent: true,
   });
   const annual = await spendService.periodView('2026');
   assert.equal(annual.quota, '4180.95');
   assert.equal(annual.overspend, '200.00');
+  assert.equal(annual.months.length, 12);
+  assert.deepEqual(
+    annual.months.filter((row) => row.overspent).map((row) => [row.month, row.overspend]),
+    [['2026-08', '200.00']],
+  );
   const stats = await spendStatsService.byCategory('2026-08');
   assert.equal(stats.total, '12199.99');
-  assert.deepEqual(stats.rows.map((row) => row.category), ['其他支出', '餐饮']);
+  assert.deepEqual(
+    stats.rows.map((row) => row.category),
+    ['其他支出', '餐饮'],
+  );
   const reconciliation = await reconciliationService.compute('2026-08');
   assert.equal(reconciliation.prepaid, '-1700.00');
   db.close();

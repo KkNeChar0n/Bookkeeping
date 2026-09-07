@@ -18,6 +18,16 @@ export const savingsActualService = {
   /** 某卡某月填写真实储蓄额（每月唯一，upsert） */
   async setAmount(input: { cardId: string; month: string; amount: string }): Promise<void> {
     const amt = toCents(input.amount);
+    const card = await db.cards.get(input.cardId);
+    if (!card) throw new Error('卡片不存在');
+    if (card.savingsPurpose === 'FUND_POOL') {
+      const contributions = await db.fundContributions
+        .where('[sourceCardId+month]')
+        .equals([input.cardId, input.month])
+        .toArray();
+      const allocated = contributions.reduce((sum, row) => sum + row.amount, 0);
+      if (amt < allocated) throw new Error('月初可投资金额不能小于当月已注资金额');
+    }
     const existing = await db.savingsActuals
       .where('[cardId+month]')
       .equals([input.cardId, input.month])
@@ -37,9 +47,14 @@ export const savingsActualService = {
   },
 
   /** 某储蓄卡截至某月的真实余额（取 ≤refMonth 的最近一条），无则 null */
-  async balanceAsOf(cardId: string, refMonth: string): Promise<{ month: string; amount: Cents } | null> {
+  async balanceAsOf(
+    cardId: string,
+    refMonth: string,
+  ): Promise<{ month: string; amount: Cents } | null> {
     const rows = await db.savingsActuals.where('cardId').equals(cardId).toArray();
-    const le = rows.filter((r) => r.month <= refMonth).sort((a, b) => b.month.localeCompare(a.month));
+    const le = rows
+      .filter((r) => r.month <= refMonth)
+      .sort((a, b) => b.month.localeCompare(a.month));
     return le.length ? { month: le[0].month, amount: le[0].amount } : null;
   },
 

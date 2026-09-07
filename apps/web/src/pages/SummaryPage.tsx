@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  useCardViews,
+  useFundPeriodPositions,
   useIncomeCompare,
   useReconciliation,
   useSavingsSummaryAsOf,
@@ -16,6 +16,7 @@ export function SummaryPage() {
   const [monthVal, setMonthVal] = useState(currentMonthStr());
   const [yearVal, setYearVal] = useState(currentMonthStr().slice(0, 4));
   const [openCats, setOpenCats] = useState<Set<string>>(new Set());
+  const [showSpendMonths, setShowSpendMonths] = useState(false);
   const toggleCat = (cat: string) =>
     setOpenCats((prev) => {
       const next = new Set(prev);
@@ -31,11 +32,10 @@ export function SummaryPage() {
   const incomeCmp = useIncomeCompare(prefix);
   const recon = useReconciliation(refMonth);
   const savingsCmp = useSavingsSummaryAsOf(refMonth);
-  const views = useCardViews();
+  const fundPeriods = useFundPeriodPositions(prefix);
 
   const spendView = spend.data;
   const savings = savingsCmp.data ?? [];
-  const fund = (views.data ?? []).filter((v) => v.type === 'FUND');
   const inc = incomeCmp.data;
   const r = recon.data;
 
@@ -55,24 +55,63 @@ export function SummaryPage() {
         {mode === 'month' ? (
           <input type="month" value={monthVal} onChange={(e) => setMonthVal(e.target.value)} />
         ) : (
-          <input type="number" min="2000" max="2100" value={yearVal} onChange={(e) => setYearVal(e.target.value)} />
+          <input
+            type="number"
+            min="2000"
+            max="2100"
+            value={yearVal}
+            onChange={(e) => setYearVal(e.target.value)}
+          />
         )}
 
         {/* 消费超支 */}
         <div className="divider" />
         <div className="detail-sub">消费 · 超支情况</div>
         {spendView ? (
-          <div className="sum-row">
-            <span>
-              全局消费
-              <span className="meta"> {mode === 'year' ? '期间额度' : '当月额度'}{spendView.hasQuota ? fmtMoney(spendView.quota) : '未设'} · 已花{fmtMoney(spendView.spent)} · 超额充值{fmtMoney(spendView.excess)}</span>
-            </span>
-            {spendView.overspent ? (
-              <b className="neg">超支 {fmtMoney(spendView.overspend)}</b>
-            ) : (
-              <span className={Number(spendView.remaining) >= 0 ? 'pos' : 'neg'}>剩 {fmtMoney(spendView.remaining)}</span>
+          <>
+            <div
+              className="sum-row"
+              onClick={() => setShowSpendMonths((open) => !open)}
+              style={{ cursor: 'pointer' }}
+            >
+              <span>
+                全局消费
+                <span className="meta">
+                  {' '}
+                  {mode === 'year' ? '期间额度' : '当月额度'}
+                  {spendView.hasQuota ? fmtMoney(spendView.quota) : '未设'} · 已花
+                  {fmtMoney(spendView.spent)} · 超额充值{fmtMoney(spendView.excess)}
+                </span>
+                <span className="muted"> {showSpendMonths ? '▾' : '▸'}</span>
+              </span>
+              {spendView.overspent ? (
+                <b className="neg">超支 {fmtMoney(spendView.overspend)}</b>
+              ) : (
+                <span className={Number(spendView.remaining) >= 0 ? 'pos' : 'neg'}>
+                  剩 {fmtMoney(spendView.remaining)}
+                </span>
+              )}
+            </div>
+            {showSpendMonths && (
+              <div className="cat-items">
+                {spendView.months.map((row) => (
+                  <div className="tx" key={row.month}>
+                    <span>
+                      {row.month}
+                      <span className="meta">
+                        {' '}
+                        额度 {row.hasQuota ? fmtMoney(row.quota) : '未设'} · 已花{' '}
+                        {fmtMoney(row.spent)}
+                      </span>
+                    </span>
+                    <b className={row.overspent ? 'neg' : ''}>
+                      {row.overspent ? `超支 ${fmtMoney(row.overspend)}` : '未超支'}
+                    </b>
+                  </div>
+                ))}
+              </div>
             )}
-          </div>
+          </>
         ) : (
           <div className="muted">暂无消费数据</div>
         )}
@@ -89,7 +128,11 @@ export function SummaryPage() {
             const open = openCats.has(row.category);
             return (
               <div key={row.category}>
-                <div className="cat-row" onClick={() => toggleCat(row.category)} style={{ cursor: 'pointer' }}>
+                <div
+                  className="cat-row"
+                  onClick={() => toggleCat(row.category)}
+                  style={{ cursor: 'pointer' }}
+                >
                   <div className="cat-line">
                     <span>
                       {row.category} <span className="muted">{open ? '▾' : '▸'}</span>
@@ -150,7 +193,10 @@ export function SummaryPage() {
             <div className="sum-row" key={v.cardId}>
               <span>
                 {v.cardName}
-                <span className="meta"> 实际{v.actual !== null ? fmtMoney(v.actual) : '未填'} · 预期{fmtMoney(v.expected)}</span>
+                <span className="meta">
+                  {' '}
+                  实际{v.actual !== null ? fmtMoney(v.actual) : '未填'} · 预期{fmtMoney(v.expected)}
+                </span>
               </span>
               {v.diff !== null ? (
                 <b className={Number(v.diff) >= 0 ? 'pos' : 'neg'}>{fmtSigned(v.diff)}</b>
@@ -183,11 +229,15 @@ export function SummaryPage() {
             <div className="brk-title">差额拆解</div>
             <div className="brk">
               <span>基金盈亏</span>
-              <span className={Number(r.fundProfit) >= 0 ? 'pos' : 'neg'}>{fmtSigned(r.fundProfit)}</span>
+              <span className={Number(r.fundProfit) >= 0 ? 'pos' : 'neg'}>
+                {fmtSigned(r.fundProfit)}
+              </span>
             </div>
             <div className="brk">
               <span>消费超支(累计)</span>
-              <span className={Number(r.overspend) > 0 ? 'neg' : Number(r.overspend) < 0 ? 'pos' : ''}>
+              <span
+                className={Number(r.overspend) > 0 ? 'neg' : Number(r.overspend) < 0 ? 'pos' : ''}
+              >
                 {Number(r.overspend) === 0 ? '0.00' : fmtSigned(-Number(r.overspend))}
               </span>
             </div>
@@ -199,17 +249,25 @@ export function SummaryPage() {
             </div>
             <div className="brk">
               <span>收入差额(累计)</span>
-              <span className={Number(r.incomeDiff) >= 0 ? 'pos' : 'neg'}>{fmtSigned(r.incomeDiff)}</span>
+              <span className={Number(r.incomeDiff) >= 0 ? 'pos' : 'neg'}>
+                {fmtSigned(r.incomeDiff)}
+              </span>
             </div>
             <div className="brk">
               <span>利息/其他</span>
-              <span className={Number(r.interest) >= 0 ? 'pos' : 'neg'}>{fmtSigned(r.interest)}</span>
+              <span className={Number(r.interest) >= 0 ? 'pos' : 'neg'}>
+                {fmtSigned(r.interest)}
+              </span>
             </div>
             <div className="muted mt" style={{ fontSize: 12 }}>
-              消费超支=逐月 max(已花−当月消费预算, 0)；预充暂存=累计超额充值−累计超支−累计结转（累计结转 {fmtMoney(r.carryover)}）。
+              消费超支=逐月 max(已花−当月消费预算,
+              0)；预充暂存=累计超额充值−累计超支−累计结转（累计结转 {fmtMoney(r.carryover)}）。
             </div>
             {!r.savingsFilled && (
               <div className="warn mt">部分储蓄卡未填该期真实额，总资产/差额暂不完整。</div>
+            )}
+            {!r.fundsFilled && (
+              <div className="warn mt">部分基金在该期之前没有月末市值，总资产/差额暂不完整。</div>
             )}
           </>
         ) : (
@@ -217,23 +275,44 @@ export function SummaryPage() {
         )}
       </div>
 
-      {/* 基金：不受时间控制器影响，单独成卡 */}
+      {/* 基金：使用筛选月份的月末快照与累计本金。 */}
       <div className="card">
-        <div className="detail-sub">基金 · 营收（当前值，不分时段）</div>
-        {fund.length ? (
-          fund.map((v) => (
-            <div className="sum-row" key={v.cardId} onClick={() => navigate(`/card/${v.cardId}`)} style={{ cursor: 'pointer' }}>
-              <span>
-                {v.cardName} ›<span className="meta"> 市值{fmtMoney(v.balance)} · 本金{fmtMoney(v.principal)}</span>
-              </span>
-              <b className={Number(v.profit) >= 0 ? 'pos' : 'neg'}>
-                {fmtSigned(v.profit)}
-                {v.profitPct !== null ? `(${v.profitPct > 0 ? '+' : ''}${v.profitPct}%)` : ''}
-              </b>
+        <div className="detail-sub">基金 · 月末仓位（{mode === 'month' ? monthVal : yearVal}）</div>
+        {fundPeriods.data?.length ? (
+          fundPeriods.data.map((period) => (
+            <div key={period.month}>
+              {mode === 'year' && <div className="brk-title">{period.month}</div>}
+              {period.positions.map((position) => (
+                <div
+                  className="sum-row"
+                  key={`${period.month}-${position.fundCardId}`}
+                  onClick={() => navigate(`/card/${position.fundCardId}?month=${period.month}`)}
+                  style={{ cursor: 'pointer' }}
+                >
+                  <span>
+                    {position.fundName} ›
+                    <span className="meta">
+                      {' '}
+                      市值{position.value === null ? '未填' : fmtMoney(position.value)} · 本金
+                      {fmtMoney(position.principal)}
+                    </span>
+                  </span>
+                  {position.profit === null ? (
+                    <span className="muted">—</span>
+                  ) : (
+                    <b className={Number(position.profit) >= 0 ? 'pos' : 'neg'}>
+                      {fmtSigned(position.profit)}
+                      {position.profitPct !== null
+                        ? `(${position.profitPct > 0 ? '+' : ''}${position.profitPct}%)`
+                        : ''}
+                    </b>
+                  )}
+                </div>
+              ))}
             </div>
           ))
         ) : (
-          <div className="muted">没有基金</div>
+          <div className="muted">该期间没有基金月末记录</div>
         )}
       </div>
     </div>

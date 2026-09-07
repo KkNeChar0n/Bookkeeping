@@ -90,6 +90,8 @@ test('legacy backup becomes one virtual account and avoids v8 quota double count
     ['2026-08', 200_000],
   ]);
   assert.deepEqual(result.initialBalanceLogs, []);
+  assert.deepEqual(result.fundContributions, []);
+  assert.deepEqual(result.fundSnapshots, []);
   const again = normalizeBackupData(result);
   assert.deepEqual(again.consumptionBudgets, result.consumptionBudgets);
 });

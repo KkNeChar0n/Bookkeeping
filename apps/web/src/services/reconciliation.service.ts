@@ -4,6 +4,7 @@ import { savingsActualService } from './savingsActual.service';
 import { savingsEntryService } from './savingsEntry.service';
 import { consumptionBudgetService } from './consumptionBudget.service';
 import { fromCents } from '../domain/money';
+import { fundService } from './fund.service';
 
 export interface Reconciliation {
   refMonth: string;
@@ -17,6 +18,7 @@ export interface Reconciliation {
   incomeDiff: string; // 累计收入差额（截至 refMonth）
   interest: string; // 利息/其他（残差）
   savingsFilled: boolean;
+  fundsFilled: boolean;
 }
 
 function thisMonth(): string {
@@ -30,7 +32,6 @@ export const reconciliationService = {
     const ref = refMonth || thisMonth();
     const cards = await db.cards.toArray();
     const savings = cards.filter((c) => c.type === 'SAVINGS');
-    const funds = cards.filter((c) => c.type === 'FUND');
 
     let savingsExpected = 0;
     let savingsActual = 0;
@@ -38,10 +39,18 @@ export const reconciliationService = {
     let cumExpectedIncome = 0;
     let cumActualIncome = 0;
     for (const c of savings) {
-      savingsExpected += await budgetPlanService.expectedBalance(c.id, ref);
+      let expected = await budgetPlanService.expectedBalance(c.id, ref);
       const bal = await savingsActualService.balanceAsOf(c.id, ref);
+      if (c.savingsPurpose === 'FUND_POOL') {
+        expected -= await fundService.contributedFromPool(c.id, ref);
+      }
+      savingsExpected += expected;
       if (bal) {
-        savingsActual += bal.amount;
+        const allocated =
+          c.savingsPurpose === 'FUND_POOL'
+            ? await fundService.contributedFromPool(c.id, ref, bal.month)
+            : 0;
+        savingsActual += bal.amount - allocated;
         cumExpectedIncome += await budgetPlanService.totalIncomeUpTo(c.id, ref);
         cumActualIncome += await savingsEntryService.cumIncomeUpTo(c.id, ref);
       } else {
@@ -49,11 +58,14 @@ export const reconciliationService = {
       }
     }
 
+    const positions = await fundService.positionsAsOf(ref);
     let fundPrincipal = 0;
     let fundValue = 0;
-    for (const f of funds) {
-      fundPrincipal += f.fundPrincipal ?? f.initialBalance;
-      fundValue += f.fundValue ?? f.initialBalance;
+    let fundsFilled = true;
+    for (const position of positions) {
+      fundPrincipal += Math.round(Number(position.principal) * 100);
+      if (position.value === null) fundsFilled = false;
+      else fundValue += Math.round(Number(position.value) * 100);
     }
     const fundProfit = fundValue - fundPrincipal;
 
@@ -84,6 +96,7 @@ export const reconciliationService = {
       incomeDiff: fromCents(incomeDiff),
       interest: fromCents(interest),
       savingsFilled,
+      fundsFilled,
     };
   },
 };

@@ -28,7 +28,8 @@ export function CardManageBar({
     if (v !== null) update.mutate({ id: cardId, initialBalance: v });
   };
   const remove = async () => {
-    if (!window.confirm(`确定删除「${name}」？`)) return;
+    if (!window.confirm(`确定删除「${name}」及其全部收支、预算和修改记录？此操作不可撤销。`))
+      return;
     try {
       await del.mutateAsync(cardId);
       onDeleted();

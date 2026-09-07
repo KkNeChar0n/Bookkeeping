@@ -4,6 +4,7 @@ import test from 'node:test';
 import { db } from '../db/db';
 import { cardsService } from './cards.service';
 import { initialBalanceLogService } from './initialBalanceLog.service';
+import { incomeCompareService } from './incomeCompare.service';
 
 test('updating an initial balance atomically keeps an audit record', async () => {
   await db.open();
@@ -30,6 +31,192 @@ test('updating an initial balance atomically keeps an audit record', async () =>
 
   await cardsService.update('savings-audit', { initialBalance: '1200.00' });
   assert.equal(await db.initialBalanceLogs.where('cardId').equals('savings-audit').count(), 1);
+
+  db.close();
+  await db.delete();
+});
+
+test('deleting a card cascades records and removes their statistics', async () => {
+  await db.open();
+  await db.cards.bulkAdd([
+    {
+      id: 'remove-me',
+      name: '待删除',
+      type: 'SAVINGS',
+      initialBalance: 0,
+      isDefault: 0,
+      sortOrder: 1,
+      createdAt: 1,
+      savingsPurpose: 'FUND_POOL',
+    },
+    {
+      id: 'peer',
+      name: '对手卡',
+      type: 'SAVINGS',
+      initialBalance: 0,
+      isDefault: 1,
+      sortOrder: 2,
+      createdAt: 2,
+    },
+    {
+      id: 'fund',
+      name: '基金',
+      type: 'FUND',
+      initialBalance: 0,
+      fundPrincipal: 0,
+      fundValue: 0,
+      isDefault: 0,
+      sortOrder: 3,
+      createdAt: 3,
+    },
+  ]);
+  await db.budgetSnapshots.add({ id: 'snapshot', date: '2026-08-31', note: null, createdAt: 1 });
+  await db.budgetLines.add({
+    id: 'line',
+    snapshotId: 'snapshot',
+    cardId: 'remove-me',
+    inAmount: 1,
+    outAmount: 0,
+  });
+  await db.transactions.bulkAdd([
+    {
+      id: 'income',
+      cardId: 'remove-me',
+      date: '2026-08-01',
+      type: 'IN',
+      amount: 100,
+      category: null,
+      note: null,
+      peerCardId: null,
+      transferGroupId: null,
+      createdAt: 1,
+    },
+    {
+      id: 'transfer-a',
+      cardId: 'remove-me',
+      date: '2026-08-02',
+      type: 'TRANSFER',
+      amount: -50,
+      category: null,
+      note: null,
+      peerCardId: 'peer',
+      transferGroupId: 'actual-group',
+      createdAt: 2,
+    },
+    {
+      id: 'transfer-b',
+      cardId: 'peer',
+      date: '2026-08-02',
+      type: 'TRANSFER',
+      amount: 50,
+      category: null,
+      note: null,
+      peerCardId: 'remove-me',
+      transferGroupId: 'actual-group',
+      createdAt: 2,
+    },
+  ]);
+  await db.budgetDetails.bulkAdd([
+    {
+      id: 'budget-income',
+      cardId: 'remove-me',
+      month: '2026-08',
+      label: '收入',
+      kind: 'IN',
+      amount: 200,
+      createdAt: 1,
+    },
+    {
+      id: 'budget-transfer-a',
+      cardId: 'remove-me',
+      month: '2026-08',
+      label: '调出',
+      kind: 'OUT',
+      peerCardId: 'peer',
+      amount: 50,
+      createdAt: 2,
+    },
+    {
+      id: 'budget-transfer-b',
+      cardId: 'peer',
+      month: '2026-08',
+      label: '调入',
+      kind: 'TRANSFER_IN',
+      peerCardId: 'remove-me',
+      amount: 50,
+      createdAt: 2,
+    },
+  ]);
+  await db.savingsActuals.add({
+    id: 'actual',
+    cardId: 'remove-me',
+    month: '2026-08',
+    amount: 1_000,
+    updatedAt: 1,
+  });
+  await db.savingsEntries.add({
+    id: 'entry',
+    cardId: 'remove-me',
+    month: '2026-08',
+    kind: 'INCOME',
+    amount: 300,
+    createdAt: 1,
+  });
+  await db.savingsLogs.add({
+    id: 'log',
+    cardId: 'remove-me',
+    month: '2026-08',
+    field: 'INCOME',
+    amount: 300,
+    createdAt: 1,
+  });
+  await db.initialBalanceLogs.add({
+    id: 'initial-log',
+    cardId: 'remove-me',
+    previousAmount: 0,
+    amount: 1,
+    createdAt: 1,
+  });
+  await db.consumptionBudgets.add({
+    id: 'budget',
+    savingsCardId: 'remove-me',
+    month: '2026-08',
+    amount: 400,
+    updatedAt: 1,
+  });
+  await db.fundContributions.add({
+    id: 'contribution',
+    batchId: 'fund-group',
+    sourceCardId: 'remove-me',
+    fundCardId: 'fund',
+    month: '2026-08',
+    amount: 500,
+    createdAt: 1,
+  });
+
+  assert.deepEqual(await incomeCompareService.compute('2026-08'), {
+    prefix: '2026-08',
+    expected: '2.00',
+    actual: '3.00',
+    diff: '1.00',
+  });
+  await cardsService.remove('remove-me');
+
+  assert.equal(await db.cards.get('remove-me'), undefined);
+  assert.equal(await db.transactions.where('transferGroupId').equals('actual-group').count(), 0);
+  assert.equal(
+    (await db.budgetDetails.toArray()).some((row) => row.peerCardId === 'remove-me'),
+    false,
+  );
+  assert.equal(await db.savingsEntries.where('cardId').equals('remove-me').count(), 0);
+  assert.equal(await db.consumptionBudgets.where('savingsCardId').equals('remove-me').count(), 0);
+  assert.equal(await db.fundContributions.where('sourceCardId').equals('remove-me').count(), 0);
+  assert.deepEqual(await incomeCompareService.compute('2026-08'), {
+    prefix: '2026-08',
+    expected: '0.00',
+    actual: '0.00',
+    diff: '0.00',
+  });
 
   db.close();
   await db.delete();

@@ -14,6 +14,10 @@ export interface SpendMonthView {
   overspent: boolean;
 }
 
+export interface SpendPeriodView extends SpendMonthView {
+  months: SpendMonthView[];
+}
+
 async function spentInMonth(month: string): Promise<Cents> {
   const rows = await db.transactions.where('cardId').equals(VIRTUAL_CONSUMPTION_CARD_ID).toArray();
   return rows
@@ -42,9 +46,15 @@ export const spendService = {
   },
 
   /** A month view stays exact-month; a year view sums values and monthly overspend. */
-  async periodView(prefix: string): Promise<SpendMonthView> {
-    if (prefix.length === 7) return this.monthView(prefix);
-    const months = Array.from({ length: 12 }, (_, index) => `${prefix}-${String(index + 1).padStart(2, '0')}`);
+  async periodView(prefix: string): Promise<SpendPeriodView> {
+    if (prefix.length === 7) {
+      const row = await this.monthView(prefix);
+      return { ...row, months: [row] };
+    }
+    const months = Array.from(
+      { length: 12 },
+      (_, index) => `${prefix}-${String(index + 1).padStart(2, '0')}`,
+    );
     const rows = await Promise.all(months.map((month) => this.monthView(month)));
     const sum = (field: 'quota' | 'spent' | 'excess' | 'remaining' | 'overspend') =>
       rows.reduce((total, row) => total + Number(row[field]), 0);
@@ -58,6 +68,7 @@ export const spendService = {
       remaining: fromCents(Math.round(sum('remaining') * 100)),
       overspend: fromCents(Math.round(overspend * 100)),
       overspent: overspend > 0,
+      months: rows,
     };
   },
 };
