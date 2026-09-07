@@ -1,6 +1,7 @@
 import Dexie, { type Table } from 'dexie';
 import type { TxType } from '../domain/balance';
 import { VIRTUAL_CONSUMPTION_CARD_ID, VIRTUAL_CONSUMPTION_CARD_NAME } from '../domain/consumption';
+import { buildOrphanCleanupPlan } from '../domain/orphanCleanup';
 
 // 卡类型：储蓄卡 / 消费卡 / 基金
 export type CardType = 'SAVINGS' | 'SPEND' | 'FUND';
@@ -364,6 +365,65 @@ export class BookkeepingDB extends Dexie {
         );
         if (snapshots.length) await tx.table('fundSnapshots').bulkAdd(snapshots);
       });
+
+    // v13：清理旧版删卡遗留的孤立记录，历史统计会从有效原始数据实时重算。
+    this.version(13).upgrade(async (tx) => {
+      const [
+        cards,
+        budgetSnapshots,
+        budgetLines,
+        transactions,
+        budgetDetails,
+        savingsActuals,
+        savingsEntries,
+        savingsLogs,
+        initialBalanceLogs,
+        consumptionBudgets,
+        fundContributions,
+        fundSnapshots,
+      ] = await Promise.all([
+        tx.table('cards').toArray() as Promise<CardRow[]>,
+        tx.table('budgetSnapshots').toArray() as Promise<BudgetSnapshotRow[]>,
+        tx.table('budgetLines').toArray() as Promise<BudgetLineRow[]>,
+        tx.table('transactions').toArray() as Promise<TransactionRow[]>,
+        tx.table('budgetDetails').toArray() as Promise<BudgetDetailRow[]>,
+        tx.table('savingsActuals').toArray() as Promise<SavingsActualRow[]>,
+        tx.table('savingsEntries').toArray() as Promise<SavingsEntryRow[]>,
+        tx.table('savingsLogs').toArray() as Promise<SavingsLogRow[]>,
+        tx.table('initialBalanceLogs').toArray() as Promise<InitialBalanceLogRow[]>,
+        tx.table('consumptionBudgets').toArray() as Promise<ConsumptionBudgetRow[]>,
+        tx.table('fundContributions').toArray() as Promise<FundContributionRow[]>,
+        tx.table('fundSnapshots').toArray() as Promise<FundSnapshotRow[]>,
+      ]);
+      const plan = buildOrphanCleanupPlan({
+        cards,
+        budgetSnapshots,
+        budgetLines,
+        transactions,
+        budgetDetails,
+        savingsActuals,
+        savingsEntries,
+        savingsLogs,
+        initialBalanceLogs,
+        consumptionBudgets,
+        fundContributions,
+        fundSnapshots,
+      });
+      const remove = (tableName: string, ids: string[]) =>
+        ids.length ? tx.table(tableName).bulkDelete(ids) : Promise.resolve();
+      await Promise.all([
+        remove('budgetLines', plan.budgetLineIds),
+        remove('transactions', plan.transactionIds),
+        remove('budgetDetails', plan.budgetDetailIds),
+        remove('savingsActuals', plan.savingsActualIds),
+        remove('savingsEntries', plan.savingsEntryIds),
+        remove('savingsLogs', plan.savingsLogIds),
+        remove('initialBalanceLogs', plan.initialBalanceLogIds),
+        remove('consumptionBudgets', plan.consumptionBudgetIds),
+        remove('fundContributions', plan.fundContributionIds),
+        remove('fundSnapshots', plan.fundSnapshotIds),
+      ]);
+    });
 
     // Fresh installs skip upgrade callbacks, so seed the same internal account on populate.
     this.on('populate', () =>

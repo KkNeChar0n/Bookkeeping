@@ -95,3 +95,283 @@ test('legacy backup becomes one virtual account and avoids v8 quota double count
   const again = normalizeBackupData(result);
   assert.deepEqual(again.consumptionBudgets, result.consumptionBudgets);
 });
+
+test('backup normalization drops orphan history and broken transfer groups', () => {
+  const result = normalizeBackupData({
+    app: 'bookkeeping',
+    version: 6,
+    exportedAt: '2026-08-31T00:00:00.000Z',
+    cards: [
+      {
+        id: 'valid-savings',
+        name: '有效储蓄卡',
+        type: 'SAVINGS',
+        initialBalance: 0,
+        isDefault: 0,
+        sortOrder: 0,
+        createdAt: 1,
+      },
+      {
+        id: 'valid-fund',
+        name: '有效基金',
+        type: 'FUND',
+        initialBalance: 0,
+        isDefault: 0,
+        sortOrder: 1,
+        createdAt: 2,
+      },
+      {
+        id: 'legacy-spend',
+        name: '旧消费卡',
+        type: 'SPEND',
+        initialBalance: 0,
+        isDefault: 0,
+        sortOrder: 2,
+        createdAt: 3,
+      },
+    ],
+    budgetSnapshots: [{ id: 'snapshot', date: '2026-08-31', note: null, createdAt: 1 }],
+    budgetLines: [
+      {
+        id: 'valid-line',
+        snapshotId: 'snapshot',
+        cardId: 'valid-savings',
+        inAmount: 100,
+        outAmount: 0,
+      },
+      {
+        id: 'orphan-line',
+        snapshotId: 'snapshot',
+        cardId: 'deleted-card',
+        inAmount: 900,
+        outAmount: 0,
+      },
+    ],
+    transactions: [
+      {
+        id: 'valid-consumption',
+        cardId: 'legacy-spend',
+        date: '2026-08-01',
+        type: 'OUT',
+        amount: -50,
+        category: '餐饮',
+        note: null,
+        peerCardId: null,
+        transferGroupId: null,
+        createdAt: 1,
+      },
+      {
+        id: 'valid-income',
+        cardId: 'valid-savings',
+        date: '2026-08-01',
+        type: 'IN',
+        amount: 100,
+        category: null,
+        note: null,
+        peerCardId: null,
+        transferGroupId: null,
+        createdAt: 2,
+      },
+      {
+        id: 'orphan-income',
+        cardId: 'deleted-card',
+        date: '2026-08-01',
+        type: 'IN',
+        amount: 900,
+        category: null,
+        note: null,
+        peerCardId: null,
+        transferGroupId: null,
+        createdAt: 3,
+      },
+      {
+        id: 'broken-transfer-valid-side',
+        cardId: 'valid-savings',
+        date: '2026-08-02',
+        type: 'TRANSFER',
+        amount: 200,
+        category: null,
+        note: null,
+        peerCardId: 'deleted-card',
+        transferGroupId: 'broken-transfer',
+        createdAt: 4,
+      },
+      {
+        id: 'broken-transfer-orphan-side',
+        cardId: 'deleted-card',
+        date: '2026-08-02',
+        type: 'TRANSFER',
+        amount: -200,
+        category: null,
+        note: null,
+        peerCardId: 'valid-savings',
+        transferGroupId: 'broken-transfer',
+        createdAt: 4,
+      },
+    ],
+    budgetDetails: [
+      {
+        id: 'valid-budget',
+        cardId: 'valid-savings',
+        month: '2026-08',
+        label: '有效预算',
+        kind: 'IN',
+        amount: 100,
+        createdAt: 1,
+      },
+      {
+        id: 'orphan-budget-side',
+        cardId: 'valid-savings',
+        peerCardId: 'deleted-card',
+        month: '2026-08',
+        label: '孤立调入',
+        kind: 'TRANSFER_IN',
+        amount: 200,
+        createdAt: 2,
+      },
+    ],
+    savingsActuals: [
+      {
+        id: 'valid-actual',
+        cardId: 'valid-savings',
+        month: '2026-08',
+        amount: 100,
+        updatedAt: 1,
+      },
+      {
+        id: 'orphan-actual',
+        cardId: 'deleted-card',
+        month: '2026-08',
+        amount: 900,
+        updatedAt: 1,
+      },
+    ],
+    savingsEntries: [
+      {
+        id: 'valid-entry',
+        cardId: 'valid-savings',
+        month: '2026-08',
+        kind: 'INCOME',
+        amount: 100,
+        createdAt: 1,
+      },
+      {
+        id: 'orphan-entry',
+        cardId: 'deleted-card',
+        month: '2026-08',
+        kind: 'INCOME',
+        amount: 900,
+        createdAt: 1,
+      },
+    ],
+    savingsLogs: [
+      {
+        id: 'orphan-log',
+        cardId: 'deleted-card',
+        month: '2026-08',
+        field: 'INCOME',
+        amount: 900,
+        createdAt: 1,
+      },
+    ],
+    initialBalanceLogs: [
+      {
+        id: 'orphan-initial-log',
+        cardId: 'deleted-card',
+        previousAmount: 0,
+        amount: 900,
+        createdAt: 1,
+      },
+    ],
+    consumptionBudgets: [
+      {
+        id: 'valid-consumption-budget',
+        savingsCardId: 'valid-savings',
+        month: '2026-08',
+        amount: 100,
+        updatedAt: 1,
+      },
+      {
+        id: 'orphan-consumption-budget',
+        savingsCardId: 'deleted-card',
+        month: '2026-08',
+        amount: 900,
+        updatedAt: 1,
+      },
+    ],
+    fundContributions: [
+      {
+        id: 'valid-funding',
+        batchId: 'valid-batch',
+        sourceCardId: 'valid-savings',
+        fundCardId: 'valid-fund',
+        month: '2026-08',
+        amount: 100,
+        createdAt: 1,
+      },
+      {
+        id: 'orphan-funding',
+        batchId: 'orphan-batch',
+        sourceCardId: 'deleted-card',
+        fundCardId: 'valid-fund',
+        month: '2026-08',
+        amount: 900,
+        createdAt: 1,
+      },
+    ],
+    fundSnapshots: [
+      {
+        id: 'valid-fund-snapshot',
+        fundCardId: 'valid-fund',
+        month: '2026-08',
+        value: 100,
+        updatedAt: 1,
+      },
+      {
+        id: 'orphan-fund-snapshot',
+        fundCardId: 'deleted-card',
+        month: '2026-08',
+        value: 900,
+        updatedAt: 1,
+      },
+    ],
+  });
+
+  assert.deepEqual(
+    result.transactions.map((row) => [row.id, row.cardId]),
+    [
+      ['valid-consumption', VIRTUAL_CONSUMPTION_CARD_ID],
+      ['valid-income', 'valid-savings'],
+    ],
+  );
+  assert.deepEqual(
+    result.budgetLines.map((row) => row.id),
+    ['valid-line'],
+  );
+  assert.deepEqual(
+    result.budgetDetails?.map((row) => row.id),
+    ['valid-budget'],
+  );
+  assert.deepEqual(
+    result.savingsActuals?.map((row) => row.id),
+    ['valid-actual'],
+  );
+  assert.deepEqual(
+    result.savingsEntries?.map((row) => row.id),
+    ['valid-entry'],
+  );
+  assert.deepEqual(result.savingsLogs, []);
+  assert.deepEqual(result.initialBalanceLogs, []);
+  assert.deepEqual(
+    result.consumptionBudgets.map((row) => row.id),
+    ['valid-consumption-budget'],
+  );
+  assert.deepEqual(
+    result.fundContributions?.map((row) => row.id),
+    ['valid-funding'],
+  );
+  assert.deepEqual(
+    result.fundSnapshots?.map((row) => row.id),
+    ['valid-fund-snapshot'],
+  );
+});

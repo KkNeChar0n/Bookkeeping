@@ -16,6 +16,7 @@ import {
   type TransactionRow,
 } from '../db/db';
 import { VIRTUAL_CONSUMPTION_CARD_ID, VIRTUAL_CONSUMPTION_CARD_NAME } from '../domain/consumption';
+import { buildOrphanCleanupPlan } from '../domain/orphanCleanup';
 
 type LegacyConsumptionBudgetRow = ConsumptionBudgetRow & { consumptionCardId?: string };
 
@@ -123,7 +124,7 @@ export function normalizeBackupData(data: BackupData): NormalizedBackupData {
     }
   }
 
-  return {
+  const normalized: NormalizedBackupData = {
     app: 'bookkeeping',
     version: 6,
     exportedAt: data.exportedAt,
@@ -144,6 +145,37 @@ export function normalizeBackupData(data: BackupData): NormalizedBackupData {
     fundContributions: data.fundContributions ?? [],
     fundSnapshots,
     consumptionBudgets: [...aggregated.values()],
+  };
+  const plan = buildOrphanCleanupPlan({
+    cards: normalized.cards,
+    budgetSnapshots: normalized.budgetSnapshots,
+    budgetLines: normalized.budgetLines,
+    transactions: normalized.transactions,
+    budgetDetails: normalized.budgetDetails ?? [],
+    savingsActuals: normalized.savingsActuals ?? [],
+    savingsEntries: normalized.savingsEntries ?? [],
+    savingsLogs: normalized.savingsLogs ?? [],
+    initialBalanceLogs: normalized.initialBalanceLogs ?? [],
+    consumptionBudgets: normalized.consumptionBudgets,
+    fundContributions: normalized.fundContributions ?? [],
+    fundSnapshots: normalized.fundSnapshots ?? [],
+  });
+  const keep = <T extends { id: string }>(rows: T[], deletedIds: string[]) => {
+    const deleted = new Set(deletedIds);
+    return rows.filter((row) => !deleted.has(row.id));
+  };
+  return {
+    ...normalized,
+    budgetLines: keep(normalized.budgetLines, plan.budgetLineIds),
+    transactions: keep(normalized.transactions, plan.transactionIds),
+    budgetDetails: keep(normalized.budgetDetails ?? [], plan.budgetDetailIds),
+    savingsActuals: keep(normalized.savingsActuals ?? [], plan.savingsActualIds),
+    savingsEntries: keep(normalized.savingsEntries ?? [], plan.savingsEntryIds),
+    savingsLogs: keep(normalized.savingsLogs ?? [], plan.savingsLogIds),
+    initialBalanceLogs: keep(normalized.initialBalanceLogs ?? [], plan.initialBalanceLogIds),
+    consumptionBudgets: keep(normalized.consumptionBudgets, plan.consumptionBudgetIds),
+    fundContributions: keep(normalized.fundContributions ?? [], plan.fundContributionIds),
+    fundSnapshots: keep(normalized.fundSnapshots ?? [], plan.fundSnapshotIds),
   };
 }
 
