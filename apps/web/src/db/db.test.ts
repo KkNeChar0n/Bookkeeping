@@ -213,16 +213,22 @@ test('v15 migration keeps legacy fund final values and removes monthly fund tabl
   const fund = await upgraded.cards.get('legacy-fund');
   assert.equal(fund?.fundPrincipal, 12_000);
   assert.equal(fund?.fundValue, 13_000);
-  assert.equal(upgraded.tables.some((table) => table.name === 'fundContributions'), false);
-  assert.equal(upgraded.tables.some((table) => table.name === 'fundSnapshots'), false);
+  assert.equal(
+    upgraded.tables.some((table) => table.name === 'fundContributions'),
+    false,
+  );
+  assert.equal(
+    upgraded.tables.some((table) => table.name === 'fundSnapshots'),
+    false,
+  );
   upgraded.close();
   await Dexie.delete(name);
 });
 
-test('v17 migration applies safe legacy asset transfers to monthly balances', async () => {
+test('v18 migration restores v17 source deductions and preserves target balance', async () => {
   const name = `bookkeeping-asset-transfer-migration-${crypto.randomUUID()}`;
   const legacy = new Dexie(name);
-  legacy.version(16).stores({
+  legacy.version(17).stores({
     cards: 'id, sortOrder, isDefault, type',
     savingsActuals: 'id, &[cardId+month], cardId',
     assetTransfers:
@@ -249,6 +255,22 @@ test('v17 migration applies safe legacy asset transfers to monthly balances', as
       createdAt: 2,
     },
   ]);
+  await legacy.table('savingsActuals').bulkAdd([
+    {
+      id: 'source-actual',
+      cardId: 'source',
+      month: '2026-10',
+      amount: 9_000,
+      updatedAt: 1,
+    },
+    {
+      id: 'target-actual',
+      cardId: 'target',
+      month: '2026-10',
+      amount: 1_000,
+      updatedAt: 1,
+    },
+  ]);
   await legacy.table('assetTransfers').add({
     id: 'old-transfer',
     date: '2026-10-01',
@@ -256,6 +278,7 @@ test('v17 migration applies safe legacy asset transfers to monthly balances', as
     targetKind: 'SAVINGS',
     targetCardId: 'target',
     amount: 1_000,
+    savingsApplied: 1,
     principalApplied: 0,
     note: null,
     createdAt: 1,
@@ -265,24 +288,149 @@ test('v17 migration applies safe legacy asset transfers to monthly balances', as
   const upgraded = new BookkeepingDB(name);
   await upgraded.open();
   const row = await upgraded.assetTransfers.get('old-transfer');
-  assert.equal(row?.savingsApplied, 1);
+  assert.equal(row?.savingsApplied, 0);
   assert.equal(
-    (
-      await upgraded.savingsActuals
-        .where('[cardId+month]')
-        .equals(['source', '2026-10'])
-        .first()
-    )?.amount,
-    9_000,
+    (await upgraded.savingsActuals.where('[cardId+month]').equals(['source', '2026-10']).first())
+      ?.amount,
+    10_000,
   );
   assert.equal(
-    (
-      await upgraded.savingsActuals
-        .where('[cardId+month]')
-        .equals(['target', '2026-10'])
-        .first()
-    )?.amount,
+    (await upgraded.savingsActuals.where('[cardId+month]').equals(['target', '2026-10']).first())
+      ?.amount,
     1_000,
+  );
+  upgraded.close();
+  await Dexie.delete(name);
+});
+
+test('direct v16 to v18 migration never applies asset transfers to savings snapshots', async () => {
+  const name = `bookkeeping-asset-transfer-direct-migration-${crypto.randomUUID()}`;
+  const legacy = new Dexie(name);
+  legacy.version(16).stores({
+    cards: 'id, sortOrder, isDefault, type',
+    savingsActuals: 'id, &[cardId+month], cardId',
+    assetTransfers:
+      'id, date, sourceCardId, targetCardId, targetKind, [sourceCardId+date], [targetCardId+date]',
+  });
+  await legacy.open();
+  await legacy.table('cards').bulkAdd([
+    {
+      id: 'direct-source',
+      name: '来源卡',
+      type: 'SAVINGS',
+      initialBalance: 10_000,
+      isDefault: 1,
+      sortOrder: 1,
+      createdAt: 1,
+    },
+    {
+      id: 'direct-target',
+      name: '接收卡',
+      type: 'SAVINGS',
+      initialBalance: 0,
+      isDefault: 0,
+      sortOrder: 2,
+      createdAt: 2,
+    },
+  ]);
+  await legacy.table('savingsActuals').bulkAdd([
+    {
+      id: 'direct-source-actual',
+      cardId: 'direct-source',
+      month: '2026-10',
+      amount: 10_000,
+      updatedAt: 1,
+    },
+    {
+      id: 'direct-target-actual',
+      cardId: 'direct-target',
+      month: '2026-10',
+      amount: 0,
+      updatedAt: 1,
+    },
+  ]);
+  await legacy.table('assetTransfers').add({
+    id: 'direct-transfer',
+    date: '2026-10-01',
+    sourceCardId: 'direct-source',
+    targetKind: 'SAVINGS',
+    targetCardId: 'direct-target',
+    amount: 1_000,
+    principalApplied: 0,
+    note: null,
+    createdAt: 1,
+  });
+  legacy.close();
+
+  const upgraded = new BookkeepingDB(name);
+  await upgraded.open();
+  assert.equal((await upgraded.assetTransfers.get('direct-transfer'))?.savingsApplied, 0);
+  assert.equal((await upgraded.savingsActuals.get('direct-source-actual'))?.amount, 10_000);
+  assert.equal((await upgraded.savingsActuals.get('direct-target-actual'))?.amount, 0);
+  upgraded.close();
+  await Dexie.delete(name);
+});
+
+test('v19 migration creates one current-month snapshot for every existing fund', async () => {
+  const name = `bookkeeping-fund-month-migration-${crypto.randomUUID()}`;
+  const legacy = new Dexie(name);
+  legacy.version(18).stores({
+    cards: 'id, sortOrder, isDefault, type',
+  });
+  await legacy.open();
+  await legacy.table('cards').bulkAdd([
+    {
+      id: 'fund-with-current-values',
+      name: '基金一',
+      type: 'FUND',
+      initialBalance: 10_000,
+      fundPrincipal: 25_000,
+      fundValue: 28_000,
+      isDefault: 0,
+      sortOrder: 1,
+      createdAt: 1,
+    },
+    {
+      id: 'fund-with-legacy-values',
+      name: '基金二',
+      type: 'FUND',
+      initialBalance: 5_000,
+      isDefault: 0,
+      sortOrder: 2,
+      createdAt: 2,
+    },
+    {
+      id: 'savings',
+      name: '储蓄',
+      type: 'SAVINGS',
+      initialBalance: 99_000,
+      isDefault: 1,
+      sortOrder: 3,
+      createdAt: 3,
+    },
+  ]);
+  legacy.close();
+
+  const upgraded = new BookkeepingDB(name);
+  await upgraded.open();
+  const now = new Date();
+  const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const snapshots = (await upgraded.fundMonthSnapshots.toArray()).sort((a, b) =>
+    a.fundCardId.localeCompare(b.fundCardId),
+  );
+  assert.deepEqual(
+    snapshots.map((row) => [row.fundCardId, row.month, row.principal, row.value]),
+    [
+      ['fund-with-current-values', month, 25_000, 28_000],
+      ['fund-with-legacy-values', month, 5_000, 5_000],
+    ],
+  );
+  assert.equal(
+    await upgraded.fundMonthSnapshots
+      .where('[fundCardId+month]')
+      .equals(['fund-with-current-values', month])
+      .count(),
+    1,
   );
   upgraded.close();
   await Dexie.delete(name);
@@ -591,8 +739,14 @@ test('v13 migration removes legacy orphan rows and preserves valid historical st
   assert.equal((await upgraded.savingsActuals.get('valid-actual'))?.amount, 100);
   assert.equal(migratedFund?.fundPrincipal, 150);
   assert.equal(migratedFund?.fundValue, 250);
-  assert.equal(upgraded.tables.some((table) => table.name === 'fundContributions'), false);
-  assert.equal(upgraded.tables.some((table) => table.name === 'fundSnapshots'), false);
+  assert.equal(
+    upgraded.tables.some((table) => table.name === 'fundContributions'),
+    false,
+  );
+  assert.equal(
+    upgraded.tables.some((table) => table.name === 'fundSnapshots'),
+    false,
+  );
   assert.equal(
     (await upgraded.transactions.toArray())
       .filter((row) => row.type === 'IN')
@@ -610,7 +764,10 @@ test('v13 migration removes legacy orphan rows and preserves valid historical st
   assert.equal(await reopened.transactions.count(), 2);
   assert.equal(await reopened.budgetDetails.count(), 1);
   assert.equal((await reopened.cards.get('valid-fund'))?.fundPrincipal, 150);
-  assert.equal(reopened.tables.some((table) => table.name === 'fundSnapshots'), false);
+  assert.equal(
+    reopened.tables.some((table) => table.name === 'fundSnapshots'),
+    false,
+  );
   reopened.close();
   await Dexie.delete(name);
 });

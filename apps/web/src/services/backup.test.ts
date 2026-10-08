@@ -92,7 +92,8 @@ test('legacy backup becomes one virtual account and avoids v8 quota double count
   assert.deepEqual(result.initialBalanceLogs, []);
   assert.deepEqual(result.assetTransfers, []);
   assert.deepEqual(result.fundPrincipalLogs, []);
-  assert.equal(result.version, 9);
+  assert.equal(result.version, 11);
+  assert.deepEqual(result.fundMonthSnapshots, []);
   assert.equal('fundContributions' in result, false);
   assert.equal('fundSnapshots' in result, false);
   const again = normalizeBackupData(result);
@@ -171,9 +172,191 @@ test('v8 backup normalization preserves valid asset transfer and principal audit
     ],
   });
 
-  assert.deepEqual(result.assetTransfers.map((row) => row.id), ['valid-transfer']);
+  assert.deepEqual(
+    result.assetTransfers.map((row) => row.id),
+    ['valid-transfer'],
+  );
   assert.equal(result.assetTransfers[0].savingsApplied, 0);
-  assert.deepEqual(result.fundPrincipalLogs.map((row) => row.id), ['valid-principal-log']);
+  assert.deepEqual(
+    result.fundPrincipalLogs.map((row) => row.id),
+    ['valid-principal-log'],
+  );
+});
+
+test('v9 backup normalization restores source snapshot deducted by asset transfer', () => {
+  const result = normalizeBackupData({
+    app: 'bookkeeping',
+    version: 9,
+    exportedAt: '2026-10-08T00:00:00.000Z',
+    cards: [
+      {
+        id: 'postal',
+        name: '邮政银行',
+        type: 'SAVINGS',
+        initialBalance: 0,
+        isDefault: 1,
+        sortOrder: 0,
+        createdAt: 1,
+      },
+      {
+        id: 'fund-card',
+        name: '基金卡',
+        type: 'SAVINGS',
+        initialBalance: 0,
+        isDefault: 0,
+        sortOrder: 1,
+        createdAt: 2,
+      },
+    ],
+    budgetSnapshots: [],
+    budgetLines: [],
+    transactions: [],
+    savingsActuals: [
+      {
+        id: 'postal-october',
+        cardId: 'postal',
+        month: '2026-10',
+        amount: 9_888_085,
+        updatedAt: 1,
+      },
+      {
+        id: 'fund-card-october',
+        cardId: 'fund-card',
+        month: '2026-10',
+        amount: 324_500,
+        updatedAt: 1,
+      },
+    ],
+    assetTransfers: [
+      {
+        id: 'v17-transfer',
+        date: '2026-10-01',
+        sourceCardId: 'postal',
+        targetKind: 'SAVINGS',
+        targetCardId: 'fund-card',
+        amount: 324_500,
+        savingsApplied: 1,
+        principalApplied: 0,
+        note: null,
+        createdAt: 3,
+      },
+    ],
+  });
+
+  assert.equal(result.version, 11);
+  assert.equal(result.savingsActuals?.find((row) => row.cardId === 'postal')?.amount, 10_212_585);
+  assert.equal(result.savingsActuals?.find((row) => row.cardId === 'fund-card')?.amount, 324_500);
+  assert.equal(result.assetTransfers[0].savingsApplied, 0);
+});
+
+test('legacy backup creates an exported-month fund snapshot from its current values', () => {
+  const result = normalizeBackupData({
+    app: 'bookkeeping',
+    version: 10,
+    exportedAt: '2026-09-30T16:00:00.000Z',
+    cards: [
+      {
+        id: 'legacy-fund',
+        name: '旧基金',
+        type: 'FUND',
+        initialBalance: 10_000,
+        fundPrincipal: 25_000,
+        fundValue: 28_000,
+        isDefault: 0,
+        sortOrder: 1,
+        createdAt: 1,
+      },
+    ],
+    budgetSnapshots: [],
+    budgetLines: [],
+    transactions: [],
+  });
+
+  assert.deepEqual(
+    result.fundMonthSnapshots.map((row) => ({
+      fundCardId: row.fundCardId,
+      month: row.month,
+      principal: row.principal,
+      value: row.value,
+    })),
+    [{ fundCardId: 'legacy-fund', month: '2026-09', principal: 25_000, value: 28_000 }],
+  );
+});
+
+test('v11 backup preserves monthly snapshots, keeps the latest duplicate, and drops orphans', () => {
+  const result = normalizeBackupData({
+    app: 'bookkeeping',
+    version: 11,
+    exportedAt: '2026-10-08T00:00:00.000Z',
+    cards: [
+      {
+        id: 'fund',
+        name: '基金',
+        type: 'FUND',
+        initialBalance: 10_000,
+        fundPrincipal: 20_000,
+        fundValue: 23_000,
+        isDefault: 0,
+        sortOrder: 1,
+        createdAt: 1,
+      },
+    ],
+    budgetSnapshots: [],
+    budgetLines: [],
+    transactions: [],
+    fundMonthSnapshots: [
+      {
+        id: 'september-old',
+        fundCardId: 'fund',
+        month: '2026-09',
+        principal: 15_000,
+        value: 16_000,
+        updatedAt: 1,
+      },
+      {
+        id: 'september-latest',
+        fundCardId: 'fund',
+        month: '2026-09',
+        principal: 15_000,
+        value: 17_000,
+        updatedAt: 2,
+      },
+      {
+        id: 'october',
+        fundCardId: 'fund',
+        month: '2026-10',
+        principal: 20_000,
+        value: 23_000,
+        updatedAt: 3,
+      },
+      {
+        id: 'orphan',
+        fundCardId: 'missing-fund',
+        month: '2026-10',
+        principal: 99_000,
+        value: 99_000,
+        updatedAt: 4,
+      },
+      {
+        id: 'invalid-month',
+        fundCardId: 'fund',
+        month: '2026-13',
+        principal: 1,
+        value: 1,
+        updatedAt: 5,
+      },
+    ],
+  });
+
+  assert.deepEqual(
+    result.fundMonthSnapshots
+      .sort((a, b) => a.month.localeCompare(b.month))
+      .map((row) => [row.id, row.month, row.principal, row.value]),
+    [
+      ['september-latest', '2026-09', 15_000, 17_000],
+      ['october', '2026-10', 20_000, 23_000],
+    ],
+  );
 });
 
 test('backup normalization drops orphan history and broken transfer groups', () => {

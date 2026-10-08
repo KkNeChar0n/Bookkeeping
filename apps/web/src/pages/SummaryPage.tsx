@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  useCardViews,
+  useFundMonthsAsOf,
   useIncomeCompare,
   useReconciliation,
   useSavingsSummaryAsOf,
@@ -32,11 +32,11 @@ export function SummaryPage() {
   const incomeCmp = useIncomeCompare(prefix);
   const recon = useReconciliation(refMonth);
   const savingsCmp = useSavingsSummaryAsOf(refMonth);
-  const views = useCardViews();
+  const fundMonths = useFundMonthsAsOf(refMonth);
 
   const spendView = spend.data;
   const savings = savingsCmp.data ?? [];
-  const fund = (views.data ?? []).filter((view) => view.type === 'FUND');
+  const fund = fundMonths.data ?? [];
   const inc = incomeCmp.data;
   const r = recon.data;
 
@@ -255,34 +255,21 @@ export function SummaryPage() {
               </span>
             </div>
             <div className="brk">
-              <span>基金投入(累计)</span>
-              <span
-                className={
-                  Number(r.fundInvestment) > 0
-                    ? 'neg'
-                    : Number(r.fundInvestment) < 0
-                      ? 'pos'
-                      : ''
-                }
-              >
-                {Number(r.fundInvestment) === 0
-                  ? '0.00'
-                  : fmtSigned(-Number(r.fundInvestment))}
-              </span>
-            </div>
-            <div className="brk">
-              <span>利息/其他</span>
+              <span>其他差额（不含基金注资）</span>
               <span className={Number(r.interest) >= 0 ? 'pos' : 'neg'}>
                 {fmtSigned(r.interest)}
               </span>
             </div>
             <div className="muted mt" style={{ fontSize: 12 }}>
-              消费超支=逐月 max(已花−当月消费预算,
-              0)；预充暂存=累计超额充值−累计超支−累计结转（累计结转 {fmtMoney(r.carryover)}）；
-              基金投入来自储蓄卡到基金本金的资产划转。
+              预算总资产=储蓄预期+基金期初本金；实际总资产=储蓄实际+所选月份基金市值。消费超支=逐月
+              max(已花−当月消费预算, 0)；预充暂存=累计超额充值−累计超支−累计结转（累计结转{' '}
+              {fmtMoney(r.carryover)}）。
             </div>
             {!r.savingsFilled && (
               <div className="warn mt">部分储蓄卡未填该期真实额，总资产/差额暂不完整。</div>
+            )}
+            {!r.fundsFilled && (
+              <div className="warn mt">部分基金在该期没有月度快照，暂按期初本金计算。</div>
             )}
           </>
         ) : (
@@ -290,22 +277,22 @@ export function SummaryPage() {
         )}
       </div>
 
-      {/* 基金使用当前最终值，不受时间筛选影响。 */}
       <div className="card">
-        <div className="detail-sub">基金 · 营收（当前值，不分时段）</div>
+        <div className="detail-sub">基金 · 本金与市值（截至 {refMonth}）</div>
         {fund.length ? (
           fund.map((view) => (
             <div
               className="sum-row"
-              key={view.cardId}
-              onClick={() => navigate(`/card/${view.cardId}`)}
+              key={view.fundCardId}
+              onClick={() => navigate(`/card/${view.fundCardId}`)}
               style={{ cursor: 'pointer' }}
             >
               <span>
-                {view.cardName} ›
+                {view.fundCardName} ›
                 <span className="meta">
                   {' '}
-                  市值{fmtMoney(view.balance)} · 本金{fmtMoney(view.principal)}
+                  市值{fmtMoney(view.value)} · 本金{fmtMoney(view.principal)} · {view.month}
+                  {!view.filled ? '（未填，按期初）' : ''}
                 </span>
               </span>
               <b className={Number(view.profit) >= 0 ? 'pos' : 'neg'}>

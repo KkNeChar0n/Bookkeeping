@@ -111,7 +111,7 @@ export interface AssetTransferRow {
   targetKind: 'SAVINGS' | 'FUND_PRINCIPAL';
   targetCardId: string;
   amount: number; // cents（正数）
-  savingsApplied: number; // 0/1；是否由本次操作更新过储蓄月度余额
+  savingsApplied: number; // 兼容字段；v18 起固定为 0，1 表示需要修复 v17 的重复扣减
   principalApplied: number; // 0/1；历史补录为 0，避免重复增加基金本金
   note: string | null;
   createdAt: number;
@@ -124,6 +124,16 @@ export interface FundPrincipalLogRow {
   previousAmount: number;
   amount: number;
   createdAt: number;
+}
+
+// 基金月度快照：同一基金同一月份唯一，同时保存当时本金与市值。
+export interface FundMonthSnapshotRow {
+  id: string;
+  fundCardId: string;
+  month: string; // YYYY-MM
+  principal: number;
+  value: number;
+  updatedAt: number;
 }
 
 // 基金资金卡在某月向基金注资；同次提交共享 batchId，可整批撤销。
@@ -187,6 +197,7 @@ export class BookkeepingDB extends Dexie {
   consumptionBudgets!: Table<ConsumptionBudgetRow, string>;
   assetTransfers!: Table<AssetTransferRow, string>;
   fundPrincipalLogs!: Table<FundPrincipalLogRow, string>;
+  fundMonthSnapshots!: Table<FundMonthSnapshotRow, string>;
 
   constructor(name = 'bookkeeping') {
     super(name);
@@ -507,77 +518,70 @@ export class BookkeepingDB extends Dexie {
       fundPrincipalLogs: 'id, fundCardId, [fundCardId+createdAt], createdAt',
     });
 
-    // v17：正常资产划转开始联动月度储蓄余额；旧记录只解释资金路径，不补改余额。
+    // v17：兼容旧资产划转记录的储蓄余额应用标记。
+    // 新安装或从 v16 直接升级到当前版本时不再执行曾发布过的余额联动；
+    // 已经运行过旧 v17 的数据库会保留 savingsApplied=1，交由 v18 恢复来源余额。
     this.version(17)
       .stores({
         assetTransfers:
           'id, date, sourceCardId, targetCardId, targetKind, [sourceCardId+date], [targetCardId+date]',
       })
       .upgrade(async (tx) => {
-        const cards = (await tx.table('cards').toArray()) as CardRow[];
-        const cardById = new Map(cards.map((card) => [card.id, card]));
+        const transferTable = tx.table('assetTransfers');
+        await transferTable.toCollection().modify((row: AssetTransferRow) => {
+          if (row.savingsApplied === undefined) row.savingsApplied = 0;
+        });
+      });
+
+    // v18：月度储蓄金额是用户填写的真实快照，撤销 v17 对来源卡造成的重复扣减。
+    // 接收卡现有金额保持不变，避免覆盖用户升级后已经确认或继续使用的数据。
+    this.version(18)
+      .stores({
+        assetTransfers:
+          'id, date, sourceCardId, targetCardId, targetKind, [sourceCardId+date], [targetCardId+date]',
+      })
+      .upgrade(async (tx) => {
         const transferTable = tx.table('assetTransfers');
         const actualTable = tx.table('savingsActuals');
-        const transfers = ((await transferTable.toArray()) as AssetTransferRow[]).sort(
-          (a, b) => a.date.localeCompare(b.date) || a.createdAt - b.createdAt,
+        const applied = ((await transferTable.toArray()) as AssetTransferRow[]).filter(
+          (row) => row.savingsApplied === 1,
         );
-        const balanceForMonth = async (card: CardRow, month: string) => {
-          const exact = (await actualTable
-            .where('[cardId+month]')
-            .equals([card.id, month])
-            .first()) as SavingsActualRow | undefined;
-          if (exact) return { row: exact, amount: exact.amount };
-          const previous = ((await actualTable.where('cardId').equals(card.id).toArray()) as SavingsActualRow[])
-            .filter((row) => row.month < month)
-            .sort((a, b) => b.month.localeCompare(a.month))[0];
-          return { row: null, amount: previous?.amount ?? card.initialBalance };
-        };
-        const setBalance = async (
-          card: CardRow,
-          month: string,
-          current: { row: SavingsActualRow | null; amount: number },
-          amount: number,
-        ) => {
-          if (current.row) {
-            await actualTable.update(current.row.id, { amount, updatedAt: Date.now() });
-          } else {
-            await actualTable.add({
-              id: crypto.randomUUID(),
-              cardId: card.id,
-              month,
-              amount,
-              updatedAt: Date.now(),
-            } satisfies SavingsActualRow);
-          }
-        };
-
-        for (const row of transfers) {
-          if (row.savingsApplied !== undefined) continue;
-          const source = cardById.get(row.sourceCardId);
-          const target = cardById.get(row.targetCardId);
-          const normalTransfer =
-            row.targetKind === 'SAVINGS' ||
-            (row.targetKind === 'FUND_PRINCIPAL' && row.principalApplied === 1);
-          const validTarget =
-            row.targetKind === 'SAVINGS' ? target?.type === 'SAVINGS' : target?.type === 'FUND';
-          if (!normalTransfer || source?.type !== 'SAVINGS' || !target || !validTarget) {
-            await transferTable.update(row.id, { savingsApplied: 0 });
-            continue;
-          }
+        for (const row of applied) {
           const month = row.date.slice(0, 7);
-          const sourceBalance = await balanceForMonth(source, month);
-          if (sourceBalance.amount < row.amount) {
-            await transferTable.update(row.id, { savingsApplied: 0 });
-            continue;
+          const actual = (await actualTable
+            .where('[cardId+month]')
+            .equals([row.sourceCardId, month])
+            .first()) as SavingsActualRow | undefined;
+          if (actual) {
+            await actualTable.update(actual.id, {
+              amount: actual.amount + row.amount,
+              updatedAt: Date.now(),
+            });
           }
-          const targetBalance =
-            target.type === 'SAVINGS' ? await balanceForMonth(target, month) : null;
-          await setBalance(source, month, sourceBalance, sourceBalance.amount - row.amount);
-          if (target.type === 'SAVINGS' && targetBalance) {
-            await setBalance(target, month, targetBalance, targetBalance.amount + row.amount);
-          }
-          await transferTable.update(row.id, { savingsApplied: 1 });
+          await transferTable.update(row.id, { savingsApplied: 0 });
         }
+      });
+
+    // v19：基金本金/市值按月留存；迁移时只为当前月保存现有最终值。
+    this.version(19)
+      .stores({
+        fundMonthSnapshots: 'id, &[fundCardId+month], fundCardId, month',
+      })
+      .upgrade(async (tx) => {
+        const cards = (await tx.table('cards').toArray()) as CardRow[];
+        const now = new Date();
+        const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+        const snapshots: FundMonthSnapshotRow[] = cards
+          .filter((card) => card.type === 'FUND')
+          .map((card) => ({
+            id: crypto.randomUUID(),
+            fundCardId: card.id,
+            month,
+            principal: card.fundPrincipal ?? card.initialBalance,
+            value: card.fundValue ?? card.initialBalance,
+            updatedAt: Date.now(),
+          }));
+        if (snapshots.length) await tx.table('fundMonthSnapshots').bulkAdd(snapshots);
       });
 
     // Fresh installs skip upgrade callbacks, so seed the same internal account on populate.

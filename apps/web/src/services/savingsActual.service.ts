@@ -57,22 +57,8 @@ export const savingsActualService = {
   async clearMonth(cardId: string, month: string): Promise<void> {
     await db.transaction(
       'rw',
-      [
-        db.savingsActuals,
-        db.savingsEntries,
-        db.savingsLogs,
-        db.consumptionBudgets,
-        db.assetTransfers,
-      ],
+      [db.savingsActuals, db.savingsEntries, db.savingsLogs, db.consumptionBudgets],
       async () => {
-        const appliedTransfers = (await db.assetTransfers.toArray()).filter(
-          (row) =>
-            row.savingsApplied === 1 &&
-            row.date.startsWith(`${month}-`) &&
-            (row.sourceCardId === cardId ||
-              (row.targetKind === 'SAVINGS' && row.targetCardId === cardId)),
-        );
-        if (appliedTransfers.length) throw new Error('该月存在资产划转，请先撤销相关划转');
         await db.savingsActuals.where('[cardId+month]').equals([cardId, month]).delete();
         await db.savingsEntries.where('[cardId+month]').equals([cardId, month]).delete();
         await db.savingsLogs.where('[cardId+month]').equals([cardId, month]).delete();

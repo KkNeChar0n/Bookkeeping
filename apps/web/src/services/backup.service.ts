@@ -9,6 +9,7 @@ import {
   type ConsumptionBudgetRow,
   type InitialBalanceLogRow,
   type FundPrincipalLogRow,
+  type FundMonthSnapshotRow,
   type LegacyFundContributionRow,
   type LegacyFundSnapshotRow,
   type SavingsActualRow,
@@ -43,26 +44,28 @@ export interface BackupData {
   initialBalanceLogs?: InitialBalanceLogRow[];
   assetTransfers?: LegacyAssetTransferRow[];
   fundPrincipalLogs?: FundPrincipalLogRow[];
+  fundMonthSnapshots?: FundMonthSnapshotRow[];
   fundContributions?: LegacyFundContributionRow[];
   fundSnapshots?: LegacyFundSnapshotRow[];
   consumptionBudgets?: LegacyConsumptionBudgetRow[];
 }
 
-export interface NormalizedBackupData
-  extends Omit<
-    BackupData,
-    | 'cards'
-    | 'consumptionBudgets'
-    | 'spendQuotas'
-    | 'fundContributions'
-    | 'fundSnapshots'
-    | 'assetTransfers'
-    | 'fundPrincipalLogs'
-  > {
+export interface NormalizedBackupData extends Omit<
+  BackupData,
+  | 'cards'
+  | 'consumptionBudgets'
+  | 'spendQuotas'
+  | 'fundContributions'
+  | 'fundSnapshots'
+  | 'assetTransfers'
+  | 'fundPrincipalLogs'
+  | 'fundMonthSnapshots'
+> {
   cards: CardRow[];
   consumptionBudgets: ConsumptionBudgetRow[];
   assetTransfers: AssetTransferRow[];
   fundPrincipalLogs: FundPrincipalLogRow[];
+  fundMonthSnapshots: FundMonthSnapshotRow[];
 }
 
 function virtualCard(): CardRow {
@@ -77,7 +80,7 @@ function virtualCard(): CardRow {
   };
 }
 
-/** Normalize v1-v3 backups before writing them into the already-upgraded v9 database. */
+/** Normalize old backups before writing them into the already-upgraded database. */
 export function normalizeBackupData(data: BackupData): NormalizedBackupData {
   const oldSpendIds = new Set(
     data.cards.filter((card) => card.type === 'SPEND').map((card) => card.id),
@@ -129,7 +132,7 @@ export function normalizeBackupData(data: BackupData): NormalizedBackupData {
 
   const normalized = {
     app: 'bookkeeping' as const,
-    version: 9,
+    version: 11,
     exportedAt: data.exportedAt,
     cards: [...data.cards.filter((card) => card.type !== 'SPEND'), virtualCard()],
     budgetSnapshots: data.budgetSnapshots ?? [],
@@ -153,6 +156,7 @@ export function normalizeBackupData(data: BackupData): NormalizedBackupData {
         }) satisfies AssetTransferRow,
     ),
     fundPrincipalLogs: data.fundPrincipalLogs ?? [],
+    fundMonthSnapshots: data.fundMonthSnapshots ?? [],
     consumptionBudgets: [...aggregated.values()],
   };
   const plan = buildOrphanCleanupPlan({
@@ -214,18 +218,62 @@ export function normalizeBackupData(data: BackupData): NormalizedBackupData {
       ? target.type === 'SAVINGS' && row.sourceCardId !== row.targetCardId
       : row.targetKind === 'FUND_PRINCIPAL' && target.type === 'FUND';
   });
+  const savingsActuals = keep(normalized.savingsActuals ?? [], plan.savingsActualIds).map(
+    (row) => ({
+      ...row,
+    }),
+  );
+  const actualByCardMonth = new Map(
+    savingsActuals.map((row) => [`${row.cardId}|${row.month}`, row]),
+  );
+  for (const row of assetTransfers) {
+    if (row.savingsApplied !== 1) continue;
+    const actual = actualByCardMonth.get(`${row.sourceCardId}|${row.date.slice(0, 7)}`);
+    if (actual) actual.amount += row.amount;
+    row.savingsApplied = 0;
+  }
   const fundPrincipalLogs = normalized.fundPrincipalLogs.filter(
     (row) => cardById.get(row.fundCardId)?.type === 'FUND',
   );
+  const snapshotByFundMonth = new Map<string, FundMonthSnapshotRow>();
+  for (const row of normalized.fundMonthSnapshots) {
+    if (
+      cardById.get(row.fundCardId)?.type !== 'FUND' ||
+      !/^\d{4}-(0[1-9]|1[0-2])$/.test(row.month) ||
+      !Number.isSafeInteger(row.principal) ||
+      !Number.isSafeInteger(row.value) ||
+      row.principal < 0 ||
+      row.value < 0
+    ) {
+      continue;
+    }
+    const key = `${row.fundCardId}|${row.month}`;
+    const found = snapshotByFundMonth.get(key);
+    if (!found || row.updatedAt >= found.updatedAt) snapshotByFundMonth.set(key, { ...row });
+  }
+  if (data.version < 11 || !Array.isArray(data.fundMonthSnapshots)) {
+    const exportedMonth = /^\d{4}-\d{2}/.exec(data.exportedAt)?.[0] ?? '1970-01';
+    for (const card of cards.filter((row) => row.type === 'FUND')) {
+      snapshotByFundMonth.set(`${card.id}|${exportedMonth}`, {
+        id: crypto.randomUUID(),
+        fundCardId: card.id,
+        month: exportedMonth,
+        principal: card.fundPrincipal ?? card.initialBalance,
+        value: card.fundValue ?? card.initialBalance,
+        updatedAt: Date.parse(data.exportedAt) || Date.now(),
+      });
+    }
+  }
   return {
     ...normalized,
     cards,
     assetTransfers,
     fundPrincipalLogs,
+    fundMonthSnapshots: [...snapshotByFundMonth.values()],
     budgetLines: keep(normalized.budgetLines, plan.budgetLineIds),
     transactions: keep(normalized.transactions, plan.transactionIds),
     budgetDetails: keep(normalized.budgetDetails ?? [], plan.budgetDetailIds),
-    savingsActuals: keep(normalized.savingsActuals ?? [], plan.savingsActualIds),
+    savingsActuals,
     savingsEntries: keep(normalized.savingsEntries ?? [], plan.savingsEntryIds),
     savingsLogs: keep(normalized.savingsLogs ?? [], plan.savingsLogIds),
     initialBalanceLogs: keep(normalized.initialBalanceLogs ?? [], plan.initialBalanceLogIds),
@@ -249,6 +297,7 @@ export const backupService = {
       consumptionBudgets,
       assetTransfers,
       fundPrincipalLogs,
+      fundMonthSnapshots,
     ] = await Promise.all([
       db.cards.toArray(),
       db.budgetSnapshots.toArray(),
@@ -263,10 +312,11 @@ export const backupService = {
       db.consumptionBudgets.toArray(),
       db.assetTransfers.toArray(),
       db.fundPrincipalLogs.toArray(),
+      db.fundMonthSnapshots.toArray(),
     ]);
     return {
       app: 'bookkeeping',
-      version: 9,
+      version: 11,
       exportedAt: new Date().toISOString(),
       cards,
       budgetSnapshots,
@@ -281,6 +331,7 @@ export const backupService = {
       consumptionBudgets,
       assetTransfers,
       fundPrincipalLogs,
+      fundMonthSnapshots,
     };
   },
 
@@ -319,6 +370,7 @@ export const backupService = {
         db.consumptionBudgets,
         db.assetTransfers,
         db.fundPrincipalLogs,
+        db.fundMonthSnapshots,
       ],
       async () => {
         await Promise.all([
@@ -335,6 +387,7 @@ export const backupService = {
           db.consumptionBudgets.clear(),
           db.assetTransfers.clear(),
           db.fundPrincipalLogs.clear(),
+          db.fundMonthSnapshots.clear(),
         ]);
         await db.cards.bulkAdd(data.cards);
         await db.budgetSnapshots.bulkAdd(data.budgetSnapshots);
@@ -349,6 +402,7 @@ export const backupService = {
         await db.consumptionBudgets.bulkAdd(data.consumptionBudgets);
         await db.assetTransfers.bulkAdd(data.assetTransfers);
         await db.fundPrincipalLogs.bulkAdd(data.fundPrincipalLogs);
+        await db.fundMonthSnapshots.bulkAdd(data.fundMonthSnapshots);
       },
     );
     return {

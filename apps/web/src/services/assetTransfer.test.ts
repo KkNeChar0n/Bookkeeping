@@ -14,7 +14,7 @@ async function resetDb() {
   await db.open();
 }
 
-test('asset transfers apply, audit and undo fund principal atomically', async () => {
+test('asset transfers leave savings snapshots unchanged and undo fund principal atomically', async () => {
   await resetDb();
   await db.cards.bulkAdd([
     {
@@ -81,23 +81,23 @@ test('asset transfers apply, audit and undo fund principal atomically', async ()
   assert.equal((await db.cards.get('fund'))?.fundPrincipal, 12_000);
   assert.equal((await db.savingsActuals.get('actual'))?.amount, 8_000);
   assert.equal(
-    (
-      await db.savingsActuals.where('[cardId+month]').equals(['source', '2026-09']).first()
-    )?.amount,
-    7_000,
+    await db.savingsActuals.where('[cardId+month]').equals(['source', '2026-09']).count(),
+    0,
   );
   assert.equal(
-    (await db.savingsActuals.where('[cardId+month]').equals(['peer', '2026-09']).first())
-      ?.amount,
-    1_000,
+    await db.savingsActuals.where('[cardId+month]').equals(['peer', '2026-09']).count(),
+    0,
   );
-  assert.equal(await assetTransferService.fundInvestmentUpTo('2026-09'), 2_000);
-  assert.equal(await assetTransferService.fundInvestmentUpTo('2026-10'), 5_000);
   assert.equal(savingsTransfer.principalApplied, false);
   assert.equal(applied.principalApplied, true);
   assert.equal(historical.principalApplied, false);
-  assert.equal((await db.assetTransfers.get(savingsTransfer.id))?.savingsApplied, 1);
+  assert.equal((await db.assetTransfers.get(savingsTransfer.id))?.savingsApplied, 0);
   assert.equal((await db.assetTransfers.get(historical.id))?.savingsApplied, 0);
+
+  await assetTransferService.remove(savingsTransfer.id);
+  assert.equal(await db.assetTransfers.get(savingsTransfer.id), undefined);
+  assert.equal((await db.savingsActuals.get('actual'))?.amount, 8_000);
+  assert.equal(await db.savingsActuals.where('cardId').equals('peer').count(), 0);
 
   await assert.rejects(
     cardsService.setFund('fund', { principal: '10' }),
@@ -111,32 +111,22 @@ test('asset transfers apply, audit and undo fund principal atomically', async ()
 
   await assetTransferService.remove(applied.id);
   assert.equal((await db.cards.get('fund'))?.fundPrincipal, 10_500);
-  assert.equal(
-    (
-      await db.savingsActuals.where('[cardId+month]').equals(['source', '2026-09']).first()
-    )?.amount,
-    9_000,
-  );
+  assert.equal((await db.savingsActuals.get('actual'))?.amount, 8_000);
   await assetTransferService.remove(historical.id);
   assert.equal((await db.cards.get('fund'))?.fundPrincipal, 10_500);
   assert.equal((await db.savingsActuals.get('actual'))?.amount, 8_000);
 
-  await assert.rejects(
-    savingsActualService.clearMonth('source', '2026-09'),
-    /请先撤销相关划转/,
-  );
+  await savingsActualService.clearMonth('source', '2026-09');
   const transferCount = await db.assetTransfers.count();
-  await assert.rejects(
-    assetTransferService.create({
-      sourceCardId: 'source',
-      targetCardId: 'peer',
-      targetKind: 'SAVINGS',
-      amount: '200',
-      date: '2026-09-10',
-    }),
-    /当月余额不足/,
-  );
-  assert.equal(await db.assetTransfers.count(), transferCount);
+  await assetTransferService.create({
+    sourceCardId: 'source',
+    targetCardId: 'peer',
+    targetKind: 'SAVINGS',
+    amount: '200',
+    date: '2026-09-10',
+  });
+  assert.equal(await db.assetTransfers.count(), transferCount + 1);
+  assert.equal((await db.savingsActuals.get('actual'))?.amount, 8_000);
 
   await assetTransferService.create({
     sourceCardId: 'source',
@@ -146,21 +136,17 @@ test('asset transfers apply, audit and undo fund principal atomically', async ()
     date: '2026-10-02',
   });
   assert.equal((await db.cards.get('fund'))?.fundPrincipal, 12_000);
-  assert.equal((await db.savingsActuals.get('actual'))?.amount, 6_500);
+  assert.equal((await db.savingsActuals.get('actual'))?.amount, 8_000);
   await cardsService.remove('source');
   assert.equal(await db.assetTransfers.count(), 0);
   assert.equal((await db.cards.get('fund'))?.fundPrincipal, 10_500);
-  assert.equal(
-    (await db.savingsActuals.where('[cardId+month]').equals(['peer', '2026-09']).first())
-      ?.amount,
-    0,
-  );
+  assert.equal(await db.savingsActuals.where('cardId').equals('peer').count(), 0);
 
   db.close();
   await db.delete();
 });
 
-test('reconciliation separates historical fund investment from interest', async () => {
+test('funding movement is net-worth neutral without depending on transfer records', async () => {
   await resetDb();
   await db.cards.bulkAdd([
     {
@@ -188,9 +174,31 @@ test('reconciliation separates historical fund investment from interest', async 
     id: 'recon-actual',
     cardId: 'recon-source',
     month: '2026-10',
-    amount: 5_000,
+    amount: 10_000,
     updatedAt: 1,
   });
+
+  const beforeFunding = await reconciliationService.compute('2026-10');
+  assert.equal(beforeFunding.budgetTotal, '150.00');
+  assert.equal(beforeFunding.actualTotal, '150.00');
+  assert.equal(beforeFunding.fundProfit, '0.00');
+  assert.equal(beforeFunding.interest, '0.00');
+
+  await db.savingsActuals.update('recon-actual', { amount: 5_000 });
+  await cardsService.setFund('recon-fund', {
+    principal: '100.00',
+    value: '100.00',
+    month: '2026-10',
+  });
+
+  const withoutTransferRecord = await reconciliationService.compute('2026-10');
+  assert.equal(withoutTransferRecord.budgetTotal, '150.00');
+  assert.equal(withoutTransferRecord.actualTotal, '150.00');
+  assert.equal(withoutTransferRecord.diff, '0.00');
+  assert.equal(withoutTransferRecord.fundProfit, '0.00');
+  assert.equal(withoutTransferRecord.interest, '0.00');
+  assert.equal('fundInvestment' in withoutTransferRecord, false);
+
   await assetTransferService.create({
     sourceCardId: 'recon-source',
     targetCardId: 'recon-fund',
@@ -200,16 +208,14 @@ test('reconciliation separates historical fund investment from interest', async 
     principalAlreadyIncluded: true,
   });
 
-  const result = await reconciliationService.compute('2026-10');
-  assert.equal(result.diff, '-50.00');
-  assert.equal(result.fundInvestment, '50.00');
-  assert.equal(result.interest, '0.00');
+  const withTransferRecord = await reconciliationService.compute('2026-10');
+  assert.deepEqual(withTransferRecord, withoutTransferRecord);
 
   db.close();
   await db.delete();
 });
 
-test('deleting a transfer target restores the surviving source balance', async () => {
+test('deleting a transfer target leaves the surviving source snapshot unchanged', async () => {
   await resetDb();
   await db.cards.bulkAdd([
     {
@@ -242,6 +248,13 @@ test('deleting a transfer target restores the surviving source balance', async (
       createdAt: 3,
     },
   ]);
+  await db.savingsActuals.add({
+    id: 'delete-target-source-actual',
+    cardId: 'delete-target-source',
+    month: '2026-10',
+    amount: 10_000,
+    updatedAt: 1,
+  });
 
   await assetTransferService.create({
     sourceCardId: 'delete-target-source',
@@ -251,15 +264,7 @@ test('deleting a transfer target restores the surviving source balance', async (
     date: '2026-10-01',
   });
   await cardsService.remove('delete-savings-target');
-  assert.equal(
-    (
-      await db.savingsActuals
-        .where('[cardId+month]')
-        .equals(['delete-target-source', '2026-10'])
-        .first()
-    )?.amount,
-    10_000,
-  );
+  assert.equal((await db.savingsActuals.get('delete-target-source-actual'))?.amount, 10_000);
 
   await assetTransferService.create({
     sourceCardId: 'delete-target-source',
@@ -269,15 +274,7 @@ test('deleting a transfer target restores the surviving source balance', async (
     date: '2026-10-02',
   });
   await cardsService.remove('delete-fund-target');
-  assert.equal(
-    (
-      await db.savingsActuals
-        .where('[cardId+month]')
-        .equals(['delete-target-source', '2026-10'])
-        .first()
-    )?.amount,
-    10_000,
-  );
+  assert.equal((await db.savingsActuals.get('delete-target-source-actual'))?.amount, 10_000);
   assert.equal(await db.assetTransfers.count(), 0);
 
   db.close();

@@ -5,6 +5,7 @@ import { db } from '../db/db';
 import { cardsService } from './cards.service';
 import { initialBalanceLogService } from './initialBalanceLog.service';
 import { incomeCompareService } from './incomeCompare.service';
+import { fundMonthSnapshotService } from './fundMonthSnapshot.service';
 
 test('updating an initial balance atomically keeps an audit record', async () => {
   await db.open();
@@ -240,6 +241,65 @@ test('fund principal calibration is audited while value stays directly editable'
     ),
     [[10_000, 25_000]],
   );
+
+  db.close();
+  await db.delete();
+});
+
+test('fund month snapshots overwrite the same month and preserve the latest current value', async () => {
+  await db.open();
+  await db.cards.add({
+    id: 'monthly-fund',
+    name: '月度基金',
+    type: 'FUND',
+    initialBalance: 10_000,
+    fundPrincipal: 10_000,
+    fundValue: 10_000,
+    isDefault: 0,
+    sortOrder: 1,
+    createdAt: 1,
+  });
+
+  await cardsService.setFund('monthly-fund', {
+    principal: '100.00',
+    value: '110.00',
+    month: '2026-09',
+  });
+  await cardsService.setFund('monthly-fund', {
+    principal: '150.00',
+    value: '170.00',
+    month: '2026-10',
+  });
+  await cardsService.setFund('monthly-fund', { value: '120.00', month: '2026-09' });
+
+  const snapshots = await db.fundMonthSnapshots
+    .where('fundCardId')
+    .equals('monthly-fund')
+    .toArray();
+  assert.equal(snapshots.length, 2);
+  assert.equal(snapshots.find((row) => row.month === '2026-09')?.value, 12_000);
+  assert.equal(snapshots.find((row) => row.month === '2026-10')?.value, 17_000);
+  assert.equal((await db.cards.get('monthly-fund'))?.fundPrincipal, 15_000);
+  assert.equal((await db.cards.get('monthly-fund'))?.fundValue, 17_000);
+
+  const august = await fundMonthSnapshotService.listAsOf('2026-08');
+  const september = await fundMonthSnapshotService.listAsOf('2026-09');
+  const november = await fundMonthSnapshotService.listAsOf('2026-11');
+  assert.deepEqual(
+    august.map((row) => [row.month, row.principal, row.value, row.filled]),
+    [['2026-08', 10_000, 10_000, false]],
+  );
+  assert.deepEqual(
+    september.map((row) => [row.month, row.principal, row.value, row.filled]),
+    [['2026-09', 10_000, 12_000, true]],
+  );
+  assert.deepEqual(
+    november.map((row) => [row.month, row.principal, row.value, row.filled]),
+    [['2026-10', 15_000, 17_000, true]],
+  );
+
+  await cardsService.remove('monthly-fund');
+  assert.equal(await db.fundMonthSnapshots.where('fundCardId').equals('monthly-fund').count(), 0);
 
   db.close();
   await db.delete();

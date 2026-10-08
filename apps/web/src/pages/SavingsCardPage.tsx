@@ -127,8 +127,7 @@ export function SavingsCardPage() {
         amount: transferAmount,
         date: transferDate,
         note: transferNote,
-        principalAlreadyIncluded:
-          transferTarget.type === 'FUND' ? principalAlreadyIncluded : false,
+        principalAlreadyIncluded: transferTarget.type === 'FUND' ? principalAlreadyIncluded : false,
       });
       setTransferAmount('');
       setTransferNote('');
@@ -235,7 +234,7 @@ export function SavingsCardPage() {
       <div className="section-title">{month} · 资产划转</div>
       <div className="card">
         <div className="muted" style={{ fontSize: 12, marginBottom: 12 }}>
-          正常划转会同步扣减来源卡当月余额，并增加接收储蓄卡余额或基金本金；撤销时反向恢复。
+          划转只记录资金路径，不会修改手工填写的真实储蓄金额，也不参与统计差额；转入基金时会增加基金本金，撤销时减回。
         </div>
         <div className="field">
           <label>去向</label>
@@ -284,9 +283,7 @@ export function SavingsCardPage() {
               checked={principalAlreadyIncluded}
               onChange={(event) => setPrincipalAlreadyIncluded(event.target.checked)}
             />
-            <span>
-              历史补录：这笔钱已经包含在当前余额和基金本金中（勾选后只补记录，不再改金额）
-            </span>
+            <span>历史补录：这笔钱已经包含在基金本金中（勾选后只补记录，不再增加本金）</span>
           </label>
         )}
         <button

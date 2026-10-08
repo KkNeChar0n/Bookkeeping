@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useCards, useSavingsList } from '../api/hooks';
+import { useAssetTransfers, useCards, useSavingsList } from '../api/hooks';
 import { fmtMoney, fmtSigned } from '../lib/format';
 import type { Card } from '../api/types';
 
@@ -40,6 +40,7 @@ export function SavingsPage() {
 
 function SavingsRow({ card, open, onToggle }: { card: Card; open: boolean; onToggle: () => void }) {
   const list = useSavingsList(card.id); // 按月倒序
+  const transfers = useAssetTransfers({ cardId: card.id });
   const navigate = useNavigate();
   const rows = list.data ?? [];
   const current = rows[0]?.amount;
@@ -80,6 +81,33 @@ function SavingsRow({ card, open, onToggle }: { card: Card; open: boolean; onTog
             })
           ) : (
             <div className="muted">还没有记录</div>
+          )}
+          <div className="section-title" style={{ marginTop: 16 }}>
+            资产划转记录
+          </div>
+          {(transfers.data ?? []).length ? (
+            (transfers.data ?? []).map((row) => {
+              const outgoing = row.sourceCardId === card.id;
+              return (
+                <div className="tx" key={row.id}>
+                  <div>
+                    <div>
+                      {outgoing ? `转到 ${row.targetCardName}` : `来自 ${row.sourceCardName}`}
+                    </div>
+                    <div className="meta">
+                      {row.date}
+                      {row.note ? ` · ${row.note}` : ''}
+                    </div>
+                  </div>
+                  <span className={`amt ${outgoing ? 'out' : 'in'}`}>
+                    {outgoing ? '−' : '+'}
+                    {fmtMoney(row.amount)}
+                  </span>
+                </div>
+              );
+            })
+          ) : (
+            <div className="muted">还没有划转记录</div>
           )}
           <button className="mini mt" onClick={() => navigate(`/savings/${card.id}`)}>
             填写 / 编辑

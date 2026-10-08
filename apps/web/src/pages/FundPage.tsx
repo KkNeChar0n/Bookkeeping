@@ -22,7 +22,7 @@ export function FundPage() {
     <div>
       <h1 className="page-title">基金</h1>
       <div className="muted date-hint" style={{ textAlign: 'left', marginBottom: 12 }}>
-        日常投入通过储蓄卡的“资产划转”增加本金；这里更新市值，必要时可校准本金。
+        月末更新每只基金的市值即可；资金在储蓄与基金之间移动不会影响统计差额。
       </div>
 
       {funds.length ? (

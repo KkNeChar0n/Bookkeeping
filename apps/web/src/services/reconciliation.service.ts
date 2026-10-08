@@ -4,11 +4,11 @@ import { savingsActualService } from './savingsActual.service';
 import { savingsEntryService } from './savingsEntry.service';
 import { consumptionBudgetService } from './consumptionBudget.service';
 import { fromCents } from '../domain/money';
-import { assetTransferService } from './assetTransfer.service';
+import { fundMonthSnapshotService } from './fundMonthSnapshot.service';
 
 export interface Reconciliation {
   refMonth: string;
-  budgetTotal: string; // 预算总资产 = Σ储蓄预期 + Σ基金本金（截至 refMonth）
+  budgetTotal: string; // 预算总资产 = Σ储蓄预期 + Σ基金期初本金
   actualTotal: string; // 实际总资产 = Σ储蓄实际 + Σ基金市值
   diff: string; // 实际 − 预算
   fundProfit: string; // 基金盈亏（市值 − 本金）
@@ -16,9 +16,9 @@ export interface Reconciliation {
   prepaid: string; // 预充暂存（虚拟消费账户里还没花掉的钱，随结转自动升降）
   carryover: string; // 累计结转（用掉上月预充的部分）
   incomeDiff: string; // 累计收入差额（截至 refMonth）
-  fundInvestment: string; // 累计基金投入（储蓄卡→基金本金）
   interest: string; // 利息/其他（残差）
   savingsFilled: boolean;
+  fundsFilled: boolean;
 }
 
 function thisMonth(): string {
@@ -51,13 +51,18 @@ export const reconciliationService = {
       }
     }
 
+    const fundMonths = await fundMonthSnapshotService.listAsOf(ref);
+    let fundInitial = 0;
     let fundPrincipal = 0;
     let fundValue = 0;
     for (const fund of funds) {
-      fundPrincipal += fund.fundPrincipal ?? fund.initialBalance;
-      fundValue += fund.fundValue ?? fund.initialBalance;
+      fundInitial += fund.initialBalance;
+      const snapshot = fundMonths.find((row) => row.fundCardId === fund.id);
+      fundPrincipal += snapshot?.principal ?? fund.initialBalance;
+      fundValue += snapshot?.value ?? fund.initialBalance;
     }
     const fundProfit = fundValue - fundPrincipal;
+    const fundsFilled = fundMonths.every((row) => row.filled);
 
     // 消费侧累计量（含跨月结转）
     const { carryover, overspendPos } = await consumptionBudgetService.reconcileTotals(ref);
@@ -66,14 +71,13 @@ export const reconciliationService = {
     // 保持既有对账口径：正常未花预算不计入预充暂存。
     const prepaid = moved - overspend - carryover;
     const incomeDiff = cumActualIncome - cumExpectedIncome;
-    const fundInvestment = await assetTransferService.fundInvestmentUpTo(ref);
 
-    const budgetTotal = savingsExpected + fundPrincipal;
+    const budgetTotal = savingsExpected + fundInitial;
     const actualTotal = savingsActual + fundValue;
     const diff = actualTotal - budgetTotal;
-    // 差额 = 基金盈亏 + 收入差额 + 利息 − 消费超支 − 预充暂存 − 基金投入
+    // 差额 = 基金盈亏 + 收入差额 + 利息 − 消费超支 − 预充暂存
     //      （消费超支 + 预充暂存 = Σ超额充值 − Σ结转 = 额外挪出净额）
-    const interest = diff - fundProfit - incomeDiff + overspend + prepaid + fundInvestment;
+    const interest = diff - fundProfit - incomeDiff + overspend + prepaid;
 
     return {
       refMonth: ref,
@@ -85,9 +89,9 @@ export const reconciliationService = {
       prepaid: fromCents(prepaid),
       carryover: fromCents(carryover),
       incomeDiff: fromCents(incomeDiff),
-      fundInvestment: fromCents(fundInvestment),
       interest: fromCents(interest),
       savingsFilled,
+      fundsFilled,
     };
   },
 };

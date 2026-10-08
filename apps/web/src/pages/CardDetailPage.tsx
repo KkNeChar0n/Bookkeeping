@@ -6,12 +6,13 @@ import {
   useCards,
   useDeleteCard,
   useFundPrincipalLogs,
+  useFundMonthSnapshots,
   useRemoveAssetTransfer,
   useSetFund,
   useUpdateCard,
 } from '../api/hooks';
 import { CARD_TYPE_LABEL } from '../api/types';
-import { fmtDateTime, fmtMoney, fmtSigned } from '../lib/format';
+import { currentMonthStr, fmtDateTime, fmtMoney, fmtSigned } from '../lib/format';
 
 /** User-managed card detail is fund-only; consumption has its own workspace. */
 export function CardDetailPage() {
@@ -94,23 +95,26 @@ function FundDetail({
   const setFund = useSetFund();
   const transfers = useAssetTransfers({ fundCardId: cardId });
   const principalLogs = useFundPrincipalLogs(cardId);
+  const monthSnapshots = useFundMonthSnapshots(cardId);
   const removeTransfer = useRemoveAssetTransfer();
   const [message, setMessage] = useState('');
   const view = views.data?.find((row) => row.cardId === cardId);
   const [principal, setPrincipal] = useState(initialPrincipal);
   const [value, setValue] = useState(initialValue);
+  const [month, setMonth] = useState(currentMonthStr());
 
   useEffect(() => {
-    setPrincipal(initialPrincipal);
-    setValue(initialValue);
-  }, [initialPrincipal, initialValue]);
+    const selected = monthSnapshots.data?.find((row) => row.month === month);
+    setPrincipal(selected?.principal ?? initialPrincipal);
+    setValue(selected?.value ?? (month === currentMonthStr() ? initialValue : ''));
+  }, [initialPrincipal, initialValue, month, monthSnapshots.data]);
 
   const saveValue = async () => {
     setMessage('');
     if (value === '') return;
     try {
-      await setFund.mutateAsync({ id: cardId, value });
-      setMessage('市值已更新');
+      await setFund.mutateAsync({ id: cardId, value, month });
+      setMessage(`${month} 市值已更新`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : '更新失败');
     }
@@ -120,7 +124,7 @@ function FundDetail({
     if (principal === '') return;
     if (!window.confirm('这是本金校准，会留下审计记录。确认保存？')) return;
     try {
-      await setFund.mutateAsync({ id: cardId, principal });
+      await setFund.mutateAsync({ id: cardId, principal, month });
       setMessage('本金校准已保存');
     } catch (error) {
       setMessage(error instanceof Error ? error.message : '校准失败');
@@ -148,7 +152,11 @@ function FundDetail({
       <div className="section-title">更新市值</div>
       <div className="card">
         <div className="field">
-          <label>当前市值（从基金 App 抄录）</label>
+          <label>统计月份</label>
+          <input type="month" value={month} onChange={(event) => setMonth(event.target.value)} />
+        </div>
+        <div className="field">
+          <label>月末市值（从基金 App 抄录）</label>
           <input
             type="number"
             step="0.01"
@@ -157,15 +165,18 @@ function FundDetail({
           />
         </div>
         <button className="primary" onClick={saveValue} disabled={!value || setFund.isPending}>
-          保存市值
+          保存 {month} 市值
         </button>
+        <div className="muted mt" style={{ fontSize: 12 }}>
+          同月重复保存会覆盖该月记录；统计自动使用所选月份之前最近的一条快照。
+        </div>
         {message && <div className="muted mt">{message}</div>}
       </div>
 
       <div className="section-title">本金校准</div>
       <div className="card">
         <div className="muted" style={{ fontSize: 12, marginBottom: 12 }}>
-          日常投入请从储蓄卡使用“资产划转”。这里只用于修正历史或录入错误，每次修改都会留痕。
+          本金只用于计算基金盈亏，不再抬高预算，也不需要为了统计补录注资来源。每次修改都会留痕并更新所选月份快照。
         </div>
         <div className="field">
           <label>累计投入 · 本金</label>
@@ -182,8 +193,30 @@ function FundDetail({
         </button>
       </div>
 
+      <div className="section-title">月度本金 / 市值</div>
+      <div className="card">
+        {(monthSnapshots.data ?? []).length ? (
+          (monthSnapshots.data ?? []).map((row) => (
+            <div className="tx" key={row.id}>
+              <div>
+                <div>{row.month}</div>
+                <div className="meta">本金 {fmtMoney(row.principal)}</div>
+              </div>
+              <span className={Number(row.profit) >= 0 ? 'pos' : 'neg'}>
+                市值 {fmtMoney(row.value)} · {fmtSigned(row.profit)}
+              </span>
+            </div>
+          ))
+        ) : (
+          <div className="muted">还没有月度记录</div>
+        )}
+      </div>
+
       <div className="section-title">资产划转记录</div>
       <div className="card">
+        <div className="muted" style={{ fontSize: 12, marginBottom: 12 }}>
+          这些记录只用于说明资金路径，不参与预算与实际的统计差额。
+        </div>
         {(transfers.data ?? []).length ? (
           (transfers.data ?? []).map((row) => (
             <div className="tx" key={row.id}>

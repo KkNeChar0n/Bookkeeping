@@ -1,5 +1,6 @@
-import { db, newId, nowTs, type AssetTransferRow, type CardRow } from '../db/db';
+import { db, newId, nowTs, type AssetTransferRow } from '../db/db';
 import { fromCents, toCents, type Cents } from '../domain/money';
+import { currentMonth, upsertFundMonthSnapshot } from './fundMonthSnapshot.service';
 
 export interface AssetTransferDTO {
   id: string;
@@ -26,49 +27,6 @@ function normalizeDate(value?: string): string {
   const date = (value || todayISO()).slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('日期格式不正确');
   return date;
-}
-
-async function monthBalance(card: CardRow, month: string) {
-  const exact = await db.savingsActuals
-    .where('[cardId+month]')
-    .equals([card.id, month])
-    .first();
-  if (exact) return { row: exact, amount: exact.amount };
-  const previous = (await db.savingsActuals.where('cardId').equals(card.id).toArray())
-    .filter((row) => row.month < month)
-    .sort((a, b) => b.month.localeCompare(a.month))[0];
-  return { row: null, amount: previous?.amount ?? card.initialBalance };
-}
-
-async function applyMonthDelta(
-  card: CardRow,
-  month: string,
-  delta: Cents,
-  requireNonnegative = false,
-) {
-  const current = await monthBalance(card, month);
-  const amount = current.amount + delta;
-  if (requireNonnegative && amount < 0) throw new Error(`来源卡「${card.name}」当月余额不足`);
-  if (current.row) {
-    await db.savingsActuals.update(current.row.id, { amount, updatedAt: nowTs() });
-  } else {
-    await db.savingsActuals.add({
-      id: newId(),
-      cardId: card.id,
-      month,
-      amount,
-      updatedAt: nowTs(),
-    });
-  }
-}
-
-async function reverseExistingMonthDelta(cardId: string, month: string, delta: Cents) {
-  const row = await db.savingsActuals
-    .where('[cardId+month]')
-    .equals([cardId, month])
-    .first();
-  if (!row) throw new Error('划转对应的月度余额不存在，无法撤销');
-  await db.savingsActuals.update(row.id, { amount: row.amount + delta, updatedAt: nowTs() });
 }
 
 async function toDTO(row: AssetTransferRow): Promise<AssetTransferDTO> {
@@ -108,9 +66,8 @@ export const assetTransferService = {
     const date = normalizeDate(input.date);
     const historical =
       input.targetKind === 'FUND_PRINCIPAL' && input.principalAlreadyIncluded === true;
-    const savingsApplied = historical ? 0 : 1;
-    const principalApplied =
-      input.targetKind === 'FUND_PRINCIPAL' && !historical ? 1 : 0;
+    const savingsApplied = 0;
+    const principalApplied = input.targetKind === 'FUND_PRINCIPAL' && !historical ? 1 : 0;
     const row: AssetTransferRow = {
       id: newId(),
       date,
@@ -124,7 +81,7 @@ export const assetTransferService = {
       createdAt: nowTs(),
     };
 
-    await db.transaction('rw', [db.cards, db.savingsActuals, db.assetTransfers], async () => {
+    await db.transaction('rw', [db.cards, db.assetTransfers, db.fundMonthSnapshots], async () => {
       const [source, target] = await Promise.all([
         db.cards.get(input.sourceCardId),
         db.cards.get(input.targetCardId),
@@ -132,17 +89,26 @@ export const assetTransferService = {
       if (!source || source.type !== 'SAVINGS') throw new Error('划转来源必须是储蓄卡');
       const expectedTargetType = input.targetKind === 'SAVINGS' ? 'SAVINGS' : 'FUND';
       if (!target || target.type !== expectedTargetType) {
-        throw new Error(input.targetKind === 'SAVINGS' ? '划转目标必须是储蓄卡' : '划转目标必须是基金');
-      }
-      if (savingsApplied === 1) {
-        const month = date.slice(0, 7);
-        await applyMonthDelta(source, month, -amount, true);
-        if (target.type === 'SAVINGS') await applyMonthDelta(target, month, amount);
+        throw new Error(
+          input.targetKind === 'SAVINGS' ? '划转目标必须是储蓄卡' : '划转目标必须是基金',
+        );
       }
       await db.assetTransfers.add(row);
       if (principalApplied === 1) {
+        const principal = (target.fundPrincipal ?? target.initialBalance) + amount;
         await db.cards.update(target.id, {
-          fundPrincipal: (target.fundPrincipal ?? target.initialBalance) + amount,
+          fundPrincipal: principal,
+        });
+        const month = currentMonth();
+        const snapshot = await db.fundMonthSnapshots
+          .where('[fundCardId+month]')
+          .equals([target.id, month])
+          .first();
+        await upsertFundMonthSnapshot({
+          fundCardId: target.id,
+          month,
+          principal,
+          value: snapshot?.value ?? target.fundValue ?? target.initialBalance,
         });
       }
     });
@@ -158,8 +124,7 @@ export const assetTransferService = {
     }
     if (filter.fundCardId) {
       rows = rows.filter(
-        (row) =>
-          row.targetKind === 'FUND_PRINCIPAL' && row.targetCardId === filter.fundCardId,
+        (row) => row.targetKind === 'FUND_PRINCIPAL' && row.targetCardId === filter.fundCardId,
       );
     }
     if (filter.month) rows = rows.filter((row) => row.date.startsWith(`${filter.month}-`));
@@ -174,32 +139,28 @@ export const assetTransferService = {
       .reduce((sum, row) => sum + row.amount, 0);
   },
 
-  async fundInvestmentUpTo(refMonth: string): Promise<Cents> {
-    const rows = await db.assetTransfers.toArray();
-    return rows
-      .filter(
-        (row) => row.targetKind === 'FUND_PRINCIPAL' && row.date.slice(0, 7) <= refMonth,
-      )
-      .reduce((sum, row) => sum + row.amount, 0);
-  },
-
   async remove(id: string): Promise<void> {
-    await db.transaction('rw', [db.cards, db.savingsActuals, db.assetTransfers], async () => {
+    await db.transaction('rw', [db.cards, db.assetTransfers, db.fundMonthSnapshots], async () => {
       const row = await db.assetTransfers.get(id);
       if (!row) throw new Error('资产划转不存在');
-      if (row.savingsApplied === 1) {
-        const month = row.date.slice(0, 7);
-        await reverseExistingMonthDelta(row.sourceCardId, month, row.amount);
-        if (row.targetKind === 'SAVINGS') {
-          await reverseExistingMonthDelta(row.targetCardId, month, -row.amount);
-        }
-      }
       if (row.targetKind === 'FUND_PRINCIPAL' && row.principalApplied === 1) {
         const fund = await db.cards.get(row.targetCardId);
         if (!fund || fund.type !== 'FUND') throw new Error('目标基金不存在');
         const principal = fund.fundPrincipal ?? fund.initialBalance;
         if (principal < row.amount) throw new Error('当前基金本金不足，无法撤销这笔划转');
-        await db.cards.update(fund.id, { fundPrincipal: principal - row.amount });
+        const nextPrincipal = principal - row.amount;
+        await db.cards.update(fund.id, { fundPrincipal: nextPrincipal });
+        const month = currentMonth();
+        const snapshot = await db.fundMonthSnapshots
+          .where('[fundCardId+month]')
+          .equals([fund.id, month])
+          .first();
+        await upsertFundMonthSnapshot({
+          fundCardId: fund.id,
+          month,
+          principal: nextPrincipal,
+          value: snapshot?.value ?? fund.fundValue ?? fund.initialBalance,
+        });
       }
       await db.assetTransfers.delete(id);
     });

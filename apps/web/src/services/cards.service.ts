@@ -2,6 +2,7 @@ import { db, newId, nowTs, type CardRow, type CardType } from '../db/db';
 import { fromCents, toCents } from '../domain/money';
 import type { Card } from '../api/types';
 import { VIRTUAL_CONSUMPTION_CARD_ID } from '../domain/consumption';
+import { currentMonth, normalizeMonth, upsertFundMonthSnapshot } from './fundMonthSnapshot.service';
 
 function toDTO(c: CardRow): Card {
   return {
@@ -50,11 +51,19 @@ export const cardsService = {
       // 基金：本金/市值起点 = 初始
       ...(type === 'FUND' ? { fundPrincipal: initial, fundValue: initial } : {}),
     };
-    await db.transaction('rw', db.cards, async () => {
+    await db.transaction('rw', [db.cards, db.fundMonthSnapshots], async () => {
       if (input.isDefault) {
         await db.cards.toCollection().modify({ isDefault: 0 });
       }
       await db.cards.add(row);
+      if (type === 'FUND') {
+        await upsertFundMonthSnapshot({
+          fundCardId: row.id,
+          month: currentMonth(),
+          principal: initial,
+          value: initial,
+        });
+      }
     });
     return toDTO(row);
   },
@@ -112,6 +121,7 @@ export const cardsService = {
         db.consumptionBudgets,
         db.assetTransfers,
         db.fundPrincipalLogs,
+        db.fundMonthSnapshots,
       ],
       async () => {
         const transactions = await db.transactions.toArray();
@@ -138,41 +148,6 @@ export const cardsService = {
           (row) => row.sourceCardId === id || row.targetCardId === id,
         );
 
-        // 删除一端时，反向恢复仍保留储蓄卡受到的余额影响。
-        const savingsRollback = new Map<string, { cardId: string; month: string; delta: number }>();
-        for (const row of relatedAssetTransfers) {
-          if (row.savingsApplied !== 1) continue;
-          const month = row.date.slice(0, 7);
-          let cardId: string | null = null;
-          let delta = 0;
-          if (row.sourceCardId === id && row.targetKind === 'SAVINGS') {
-            cardId = row.targetCardId;
-            delta = -row.amount;
-          } else if (row.targetCardId === id) {
-            cardId = row.sourceCardId;
-            delta = row.amount;
-          }
-          if (!cardId || cardId === id) continue;
-          const key = `${cardId}|${month}`;
-          const current = savingsRollback.get(key);
-          savingsRollback.set(key, {
-            cardId,
-            month,
-            delta: (current?.delta ?? 0) + delta,
-          });
-        }
-        for (const rollback of savingsRollback.values()) {
-          const actual = await db.savingsActuals
-            .where('[cardId+month]')
-            .equals([rollback.cardId, rollback.month])
-            .first();
-          if (!actual) throw new Error('划转对应的月度余额不存在，无法删除卡片');
-          await db.savingsActuals.update(actual.id, {
-            amount: actual.amount + rollback.delta,
-            updatedAt: nowTs(),
-          });
-        }
-
         // 删除来源储蓄卡时，仍保留的目标基金需要同步回退实际应用过的本金。
         const principalRollbackByFund = new Map<string, number>();
         if (existing.type === 'SAVINGS') {
@@ -193,8 +168,21 @@ export const cardsService = {
           const fund = await db.cards.get(fundId);
           if (!fund || fund.type !== 'FUND') continue;
           const principal = fund.fundPrincipal ?? fund.initialBalance;
-          if (principal < rollback) throw new Error(`基金「${fund.name}」本金不足，无法删除该储蓄卡`);
-          await db.cards.update(fundId, { fundPrincipal: principal - rollback });
+          if (principal < rollback)
+            throw new Error(`基金「${fund.name}」本金不足，无法删除该储蓄卡`);
+          const nextPrincipal = principal - rollback;
+          await db.cards.update(fundId, { fundPrincipal: nextPrincipal });
+          const month = currentMonth();
+          const snapshot = await db.fundMonthSnapshots
+            .where('[fundCardId+month]')
+            .equals([fundId, month])
+            .first();
+          await upsertFundMonthSnapshot({
+            fundCardId: fundId,
+            month,
+            principal: nextPrincipal,
+            value: snapshot?.value ?? fund.fundValue ?? fund.initialBalance,
+          });
         }
 
         await Promise.all([
@@ -210,6 +198,7 @@ export const cardsService = {
             ? db.assetTransfers.bulkDelete(relatedAssetTransfers.map((row) => row.id))
             : Promise.resolve(),
           db.fundPrincipalLogs.where('fundCardId').equals(id).delete(),
+          db.fundMonthSnapshots.where('fundCardId').equals(id).delete(),
         ]);
         await db.cards.delete(id);
       },
@@ -218,19 +207,21 @@ export const cardsService = {
   },
 
   /** 基金：更新市值；本金变更属于人工校准，必须留下审计。 */
-  async setFund(id: string, input: { principal?: string; value?: string }): Promise<Card> {
+  async setFund(
+    id: string,
+    input: { principal?: string; value?: string; month?: string },
+  ): Promise<Card> {
     const existing = await db.cards.get(id);
     if (!existing || existing.type !== 'FUND') throw new Error('基金不存在');
-    const patch: Partial<CardRow> = {};
+    const month = normalizeMonth(input.month);
     const nextPrincipal = input.principal === undefined ? undefined : toCents(input.principal);
     const nextValue = input.value === undefined ? undefined : toCents(input.value);
     if (nextPrincipal !== undefined && nextPrincipal < 0) throw new Error('基金本金不能为负数');
     if (nextValue !== undefined && nextValue < 0) throw new Error('基金市值不能为负数');
-    if (nextPrincipal !== undefined) patch.fundPrincipal = nextPrincipal;
-    if (nextValue !== undefined) patch.fundValue = nextValue;
+    let result = existing;
     await db.transaction(
       'rw',
-      [db.cards, db.assetTransfers, db.fundPrincipalLogs],
+      [db.cards, db.assetTransfers, db.fundPrincipalLogs, db.fundMonthSnapshots],
       async () => {
         const current = await db.cards.get(id);
         if (!current || current.type !== 'FUND') throw new Error('基金不存在');
@@ -238,9 +229,7 @@ export const cardsService = {
         if (nextPrincipal !== undefined && nextPrincipal !== previousPrincipal) {
           const transfers = await db.assetTransfers.where('targetCardId').equals(id).toArray();
           const applied = transfers
-            .filter(
-              (row) => row.targetKind === 'FUND_PRINCIPAL' && row.principalApplied === 1,
-            )
+            .filter((row) => row.targetKind === 'FUND_PRINCIPAL' && row.principalApplied === 1)
             .reduce((sum, row) => sum + row.amount, 0);
           if (nextPrincipal < applied) {
             throw new Error(`本金不能低于仍有效的划转合计 ${fromCents(applied)}`);
@@ -253,10 +242,28 @@ export const cardsService = {
             createdAt: nowTs(),
           });
         }
+        const exact = await db.fundMonthSnapshots
+          .where('[fundCardId+month]')
+          .equals([id, month])
+          .first();
+        await upsertFundMonthSnapshot({
+          fundCardId: id,
+          month,
+          principal:
+            nextPrincipal ?? exact?.principal ?? current.fundPrincipal ?? current.initialBalance,
+          value: nextValue ?? exact?.value ?? current.fundValue ?? current.initialBalance,
+        });
+        const latest = (await db.fundMonthSnapshots.where('fundCardId').equals(id).toArray()).sort(
+          (a, b) => b.month.localeCompare(a.month) || b.updatedAt - a.updatedAt,
+        )[0];
+        const patch: Partial<CardRow> = latest
+          ? { fundPrincipal: latest.principal, fundValue: latest.value }
+          : {};
         await db.cards.update(id, patch);
+        result = { ...current, ...patch };
       },
     );
-    return toDTO({ ...existing, ...patch });
+    return toDTO(result);
   },
 
   async setDefault(id: string): Promise<{ ok: true }> {
