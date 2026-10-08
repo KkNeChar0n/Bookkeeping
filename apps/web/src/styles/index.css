@@ -168,6 +168,21 @@ select:focus {
   border-color: var(--primary);
 }
 
+.check-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 12px 0;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.check-row input {
+  width: auto;
+  margin-top: 2px;
+  flex: 0 0 auto;
+}
+
 /* iOS 原生日期/月份框默认居中偏右，统一改成左对齐、与其它输入一致 */
 input[type='date'],
 input[type='month'] {

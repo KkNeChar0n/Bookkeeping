@@ -90,10 +90,89 @@ test('legacy backup becomes one virtual account and avoids v8 quota double count
     ['2026-08', 200_000],
   ]);
   assert.deepEqual(result.initialBalanceLogs, []);
+  assert.deepEqual(result.assetTransfers, []);
+  assert.deepEqual(result.fundPrincipalLogs, []);
+  assert.equal(result.version, 8);
   assert.equal('fundContributions' in result, false);
   assert.equal('fundSnapshots' in result, false);
   const again = normalizeBackupData(result);
   assert.deepEqual(again.consumptionBudgets, result.consumptionBudgets);
+});
+
+test('v8 backup normalization preserves valid asset transfer and principal audit rows', () => {
+  const result = normalizeBackupData({
+    app: 'bookkeeping',
+    version: 8,
+    exportedAt: '2026-10-08T00:00:00.000Z',
+    cards: [
+      {
+        id: 'source-card',
+        name: '储蓄',
+        type: 'SAVINGS',
+        initialBalance: 0,
+        isDefault: 1,
+        sortOrder: 0,
+        createdAt: 1,
+      },
+      {
+        id: 'fund-card',
+        name: '基金',
+        type: 'FUND',
+        initialBalance: 0,
+        fundPrincipal: 10_000,
+        fundValue: 11_000,
+        isDefault: 0,
+        sortOrder: 1,
+        createdAt: 2,
+      },
+    ],
+    budgetSnapshots: [],
+    budgetLines: [],
+    transactions: [],
+    assetTransfers: [
+      {
+        id: 'valid-transfer',
+        date: '2026-10-01',
+        sourceCardId: 'source-card',
+        targetKind: 'FUND_PRINCIPAL',
+        targetCardId: 'fund-card',
+        amount: 5_000,
+        principalApplied: 0,
+        note: '历史补录',
+        createdAt: 3,
+      },
+      {
+        id: 'orphan-transfer',
+        date: '2026-10-01',
+        sourceCardId: 'deleted-card',
+        targetKind: 'FUND_PRINCIPAL',
+        targetCardId: 'fund-card',
+        amount: 9_000,
+        principalApplied: 1,
+        note: null,
+        createdAt: 4,
+      },
+    ],
+    fundPrincipalLogs: [
+      {
+        id: 'valid-principal-log',
+        fundCardId: 'fund-card',
+        previousAmount: 9_000,
+        amount: 10_000,
+        createdAt: 5,
+      },
+      {
+        id: 'orphan-principal-log',
+        fundCardId: 'deleted-fund',
+        previousAmount: 0,
+        amount: 1,
+        createdAt: 6,
+      },
+    ],
+  });
+
+  assert.deepEqual(result.assetTransfers.map((row) => row.id), ['valid-transfer']);
+  assert.deepEqual(result.fundPrincipalLogs.map((row) => row.id), ['valid-principal-log']);
 });
 
 test('backup normalization drops orphan history and broken transfer groups', () => {

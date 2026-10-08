@@ -103,6 +103,28 @@ export interface InitialBalanceLogRow {
   createdAt: number; // 时间戳
 }
 
+// 资产划转：储蓄卡可以转到另一张储蓄卡或基金本金。
+export interface AssetTransferRow {
+  id: string;
+  date: string; // YYYY-MM-DD
+  sourceCardId: string;
+  targetKind: 'SAVINGS' | 'FUND_PRINCIPAL';
+  targetCardId: string;
+  amount: number; // cents（正数）
+  principalApplied: number; // 0/1；历史补录为 0，避免重复增加基金本金
+  note: string | null;
+  createdAt: number;
+}
+
+// 基金本金人工校准审计。
+export interface FundPrincipalLogRow {
+  id: string;
+  fundCardId: string;
+  previousAmount: number;
+  amount: number;
+  createdAt: number;
+}
+
 // 基金资金卡在某月向基金注资；同次提交共享 batchId，可整批撤销。
 export interface LegacyFundContributionRow {
   id: string;
@@ -162,6 +184,8 @@ export class BookkeepingDB extends Dexie {
   savingsLogs!: Table<SavingsLogRow, string>;
   initialBalanceLogs!: Table<InitialBalanceLogRow, string>;
   consumptionBudgets!: Table<ConsumptionBudgetRow, string>;
+  assetTransfers!: Table<AssetTransferRow, string>;
+  fundPrincipalLogs!: Table<FundPrincipalLogRow, string>;
 
   constructor(name = 'bookkeeping') {
     super(name);
@@ -473,6 +497,13 @@ export class BookkeepingDB extends Dexie {
       cards: 'id, sortOrder, isDefault, type',
       fundContributions: null,
       fundSnapshots: null,
+    });
+
+    // v16：通用资产划转与基金本金人工校准审计。
+    this.version(16).stores({
+      assetTransfers:
+        'id, date, sourceCardId, targetCardId, targetKind, [sourceCardId+date], [targetCardId+date]',
+      fundPrincipalLogs: 'id, fundCardId, [fundCardId+createdAt], createdAt',
     });
 
     // Fresh installs skip upgrade callbacks, so seed the same internal account on populate.

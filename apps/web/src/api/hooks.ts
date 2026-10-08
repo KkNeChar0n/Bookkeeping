@@ -17,6 +17,8 @@ import { reconciliationService } from '../services/reconciliation.service';
 import { incomeCompareService } from '../services/incomeCompare.service';
 import { categoriesService } from '../services/categories';
 import { initialBalanceLogService } from '../services/initialBalanceLog.service';
+import { assetTransferService } from '../services/assetTransfer.service';
+import { fundPrincipalLogService } from '../services/fundPrincipalLog.service';
 
 // ---- 失效所有受余额影响的视图 ----
 function useInvalidateLedger() {
@@ -35,6 +37,8 @@ function useInvalidateLedger() {
     qc.invalidateQueries({ queryKey: ['reconciliation'] });
     qc.invalidateQueries({ queryKey: ['incomeCompare'] });
     qc.invalidateQueries({ queryKey: ['initialBalanceLogs'] });
+    qc.invalidateQueries({ queryKey: ['assetTransfers'] });
+    qc.invalidateQueries({ queryKey: ['fundPrincipalLogs'] });
   };
 }
 
@@ -391,6 +395,47 @@ export function useSetFund() {
     mutationFn: ({ id, ...body }: { id: string; principal?: string; value?: string }) =>
       cardsService.setFund(id, body),
     onSuccess: inv,
+  });
+}
+
+// ---- 通用资产划转 / 基金本金校准 ----
+export function useAssetTransfers(filter: {
+  cardId?: string;
+  month?: string;
+  fundCardId?: string;
+}) {
+  return useQuery({
+    queryKey: ['assetTransfers', filter],
+    queryFn: () => assetTransferService.list(filter),
+  });
+}
+export function useCreateAssetTransfer() {
+  const inv = useInvalidateLedger();
+  return useMutation({
+    mutationFn: (body: {
+      sourceCardId: string;
+      targetCardId: string;
+      targetKind: 'SAVINGS' | 'FUND_PRINCIPAL';
+      amount: string;
+      date?: string;
+      note?: string;
+      principalAlreadyIncluded?: boolean;
+    }) => assetTransferService.create(body),
+    onSuccess: inv,
+  });
+}
+export function useRemoveAssetTransfer() {
+  const inv = useInvalidateLedger();
+  return useMutation({
+    mutationFn: (id: string) => assetTransferService.remove(id),
+    onSuccess: inv,
+  });
+}
+export function useFundPrincipalLogs(fundCardId: string) {
+  return useQuery({
+    queryKey: ['fundPrincipalLogs', fundCardId],
+    queryFn: () => fundPrincipalLogService.list(fundCardId),
+    enabled: !!fundCardId,
   });
 }
 

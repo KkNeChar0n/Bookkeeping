@@ -210,7 +210,7 @@ test('deleting a card cascades records and removes their statistics', async () =
   await db.delete();
 });
 
-test('fund principal and value can be edited directly', async () => {
+test('fund principal calibration is audited while value stays directly editable', async () => {
   await db.open();
   await db.cards.add({
     id: 'fund-direct-edit',
@@ -234,6 +234,12 @@ test('fund principal and value can be edited directly', async () => {
   const stored = await db.cards.get('fund-direct-edit');
   assert.equal(stored?.fundPrincipal, 25_000);
   assert.equal(stored?.fundValue, 28_050);
+  assert.deepEqual(
+    (await db.fundPrincipalLogs.where('fundCardId').equals('fund-direct-edit').toArray()).map(
+      (row) => [row.previousAmount, row.amount],
+    ),
+    [[10_000, 25_000]],
+  );
 
   db.close();
   await db.delete();

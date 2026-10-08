@@ -255,6 +255,22 @@ export function SummaryPage() {
               </span>
             </div>
             <div className="brk">
+              <span>基金投入(累计)</span>
+              <span
+                className={
+                  Number(r.fundInvestment) > 0
+                    ? 'neg'
+                    : Number(r.fundInvestment) < 0
+                      ? 'pos'
+                      : ''
+                }
+              >
+                {Number(r.fundInvestment) === 0
+                  ? '0.00'
+                  : fmtSigned(-Number(r.fundInvestment))}
+              </span>
+            </div>
+            <div className="brk">
               <span>利息/其他</span>
               <span className={Number(r.interest) >= 0 ? 'pos' : 'neg'}>
                 {fmtSigned(r.interest)}
@@ -262,7 +278,8 @@ export function SummaryPage() {
             </div>
             <div className="muted mt" style={{ fontSize: 12 }}>
               消费超支=逐月 max(已花−当月消费预算,
-              0)；预充暂存=累计超额充值−累计超支−累计结转（累计结转 {fmtMoney(r.carryover)}）。
+              0)；预充暂存=累计超额充值−累计超支−累计结转（累计结转 {fmtMoney(r.carryover)}）；
+              基金投入来自储蓄卡到基金本金的资产划转。
             </div>
             {!r.savingsFilled && (
               <div className="warn mt">部分储蓄卡未填该期真实额，总资产/差额暂不完整。</div>

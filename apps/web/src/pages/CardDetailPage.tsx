@@ -1,8 +1,17 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { useCardViews, useCards, useDeleteCard, useSetFund, useUpdateCard } from '../api/hooks';
+import {
+  useAssetTransfers,
+  useCardViews,
+  useCards,
+  useDeleteCard,
+  useFundPrincipalLogs,
+  useRemoveAssetTransfer,
+  useSetFund,
+  useUpdateCard,
+} from '../api/hooks';
 import { CARD_TYPE_LABEL } from '../api/types';
-import { fmtMoney, fmtSigned } from '../lib/format';
+import { fmtDateTime, fmtMoney, fmtSigned } from '../lib/format';
 
 /** User-managed card detail is fund-only; consumption has its own workspace. */
 export function CardDetailPage() {
@@ -83,6 +92,9 @@ function FundDetail({
 }) {
   const views = useCardViews();
   const setFund = useSetFund();
+  const transfers = useAssetTransfers({ fundCardId: cardId });
+  const principalLogs = useFundPrincipalLogs(cardId);
+  const removeTransfer = useRemoveAssetTransfer();
   const [message, setMessage] = useState('');
   const view = views.data?.find((row) => row.cardId === cardId);
   const [principal, setPrincipal] = useState(initialPrincipal);
@@ -93,14 +105,26 @@ function FundDetail({
     setValue(initialValue);
   }, [initialPrincipal, initialValue]);
 
-  const save = async () => {
+  const saveValue = async () => {
     setMessage('');
-    const body: { id: string; principal?: string; value?: string } = { id: cardId };
-    if (principal !== '') body.principal = principal;
-    if (value !== '') body.value = value;
-    if (!body.principal && !body.value) return;
-    await setFund.mutateAsync(body);
-    setMessage('已更新');
+    if (value === '') return;
+    try {
+      await setFund.mutateAsync({ id: cardId, value });
+      setMessage('市值已更新');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '更新失败');
+    }
+  };
+  const savePrincipal = async () => {
+    setMessage('');
+    if (principal === '') return;
+    if (!window.confirm('这是本金校准，会留下审计记录。确认保存？')) return;
+    try {
+      await setFund.mutateAsync({ id: cardId, principal });
+      setMessage('本金校准已保存');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '校准失败');
+    }
   };
   const profit = Number(view?.profit ?? 0);
 
@@ -121,19 +145,10 @@ function FundDetail({
           )}
         </div>
       </div>
-      <div className="section-title">更新（从基金 App 抄这两个数）</div>
+      <div className="section-title">更新市值</div>
       <div className="card">
         <div className="field">
-          <label>累计投入 · 本金</label>
-          <input
-            type="number"
-            step="0.01"
-            value={principal}
-            onChange={(event) => setPrincipal(event.target.value)}
-          />
-        </div>
-        <div className="field">
-          <label>当前市值</label>
+          <label>当前市值（从基金 App 抄录）</label>
           <input
             type="number"
             step="0.01"
@@ -141,10 +156,83 @@ function FundDetail({
             onChange={(event) => setValue(event.target.value)}
           />
         </div>
-        <button className="primary" onClick={save} disabled={!principal && !value}>
-          保存
+        <button className="primary" onClick={saveValue} disabled={!value || setFund.isPending}>
+          保存市值
         </button>
         {message && <div className="muted mt">{message}</div>}
+      </div>
+
+      <div className="section-title">本金校准</div>
+      <div className="card">
+        <div className="muted" style={{ fontSize: 12, marginBottom: 12 }}>
+          日常投入请从储蓄卡使用“资产划转”。这里只用于修正历史或录入错误，每次修改都会留痕。
+        </div>
+        <div className="field">
+          <label>累计投入 · 本金</label>
+          <input
+            type="number"
+            step="0.01"
+            min="0"
+            value={principal}
+            onChange={(event) => setPrincipal(event.target.value)}
+          />
+        </div>
+        <button onClick={savePrincipal} disabled={!principal || setFund.isPending}>
+          校准本金
+        </button>
+      </div>
+
+      <div className="section-title">资产划转记录</div>
+      <div className="card">
+        {(transfers.data ?? []).length ? (
+          (transfers.data ?? []).map((row) => (
+            <div className="tx" key={row.id}>
+              <div>
+                <div>
+                  {row.sourceCardName} → 本基金
+                  {!row.principalApplied ? ' · 本金已包含' : ''}
+                </div>
+                <div className="meta">
+                  {row.date}
+                  {row.note ? ` · ${row.note}` : ''}
+                </div>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <div className="amt in">+{fmtMoney(row.amount)}</div>
+                <button
+                  className="mini danger"
+                  onClick={async () => {
+                    if (!window.confirm('撤销这笔资产划转？')) return;
+                    await removeTransfer.mutateAsync(row.id);
+                  }}
+                >
+                  撤销
+                </button>
+              </div>
+            </div>
+          ))
+        ) : (
+          <div className="muted">还没有转入记录</div>
+        )}
+      </div>
+
+      <div className="section-title">本金校准记录</div>
+      <div className="card">
+        {(principalLogs.data ?? []).length ? (
+          (principalLogs.data ?? []).map((log) => (
+            <div className="tx" key={log.id}>
+              <div>
+                <div>本金校准</div>
+                <div className="meta">{fmtDateTime(log.createdAt)}</div>
+              </div>
+              <span>
+                {fmtMoney(log.previousAmount)} → <b>{fmtMoney(log.amount)}</b>
+              </span>
+            </div>
+          ))
+        ) : (
+          <div className="muted">还没有本金校准</div>
+        )}
       </div>
     </>
   );

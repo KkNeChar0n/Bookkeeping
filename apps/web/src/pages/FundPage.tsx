@@ -22,7 +22,7 @@ export function FundPage() {
     <div>
       <h1 className="page-title">基金</h1>
       <div className="muted date-hint" style={{ textAlign: 'left', marginBottom: 12 }}>
-        每张基金记两个数：累计投入（本金）和当前市值。盈亏自动计算。
+        日常投入通过储蓄卡的“资产划转”增加本金；这里更新市值，必要时可校准本金。
       </div>
 
       {funds.length ? (
@@ -66,7 +66,7 @@ export function FundPage() {
                       </b>
                     </div>
                     <button className="mini mt" onClick={() => navigate(`/card/${card.id}`)}>
-                      更新本金 / 市值
+                      更新市值 / 校准本金
                     </button>
                   </div>
                 )}

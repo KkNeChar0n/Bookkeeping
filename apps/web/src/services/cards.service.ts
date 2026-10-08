@@ -110,6 +110,8 @@ export const cardsService = {
         db.savingsLogs,
         db.initialBalanceLogs,
         db.consumptionBudgets,
+        db.assetTransfers,
+        db.fundPrincipalLogs,
       ],
       async () => {
         const transactions = await db.transactions.toArray();
@@ -131,6 +133,34 @@ export const cardsService = {
         const budgetDetailIds = budgetDetails
           .filter((row) => row.cardId === id || row.peerCardId === id)
           .map((row) => row.id);
+        const assetTransfers = await db.assetTransfers.toArray();
+        const relatedAssetTransfers = assetTransfers.filter(
+          (row) => row.sourceCardId === id || row.targetCardId === id,
+        );
+
+        // 删除来源储蓄卡时，仍保留的目标基金需要同步回退实际应用过的本金。
+        const principalRollbackByFund = new Map<string, number>();
+        if (existing.type === 'SAVINGS') {
+          for (const row of relatedAssetTransfers) {
+            if (
+              row.sourceCardId === id &&
+              row.targetKind === 'FUND_PRINCIPAL' &&
+              row.principalApplied === 1
+            ) {
+              principalRollbackByFund.set(
+                row.targetCardId,
+                (principalRollbackByFund.get(row.targetCardId) ?? 0) + row.amount,
+              );
+            }
+          }
+        }
+        for (const [fundId, rollback] of principalRollbackByFund) {
+          const fund = await db.cards.get(fundId);
+          if (!fund || fund.type !== 'FUND') continue;
+          const principal = fund.fundPrincipal ?? fund.initialBalance;
+          if (principal < rollback) throw new Error(`基金「${fund.name}」本金不足，无法删除该储蓄卡`);
+          await db.cards.update(fundId, { fundPrincipal: principal - rollback });
+        }
 
         await Promise.all([
           transactionIds.length ? db.transactions.bulkDelete(transactionIds) : Promise.resolve(),
@@ -141,6 +171,10 @@ export const cardsService = {
           db.savingsLogs.where('cardId').equals(id).delete(),
           db.initialBalanceLogs.where('cardId').equals(id).delete(),
           db.consumptionBudgets.where('savingsCardId').equals(id).delete(),
+          relatedAssetTransfers.length
+            ? db.assetTransfers.bulkDelete(relatedAssetTransfers.map((row) => row.id))
+            : Promise.resolve(),
+          db.fundPrincipalLogs.where('fundCardId').equals(id).delete(),
         ]);
         await db.cards.delete(id);
       },
@@ -148,14 +182,45 @@ export const cardsService = {
     return { ok: true };
   },
 
-  /** 基金：直接设置本金 / 市值（两个数） */
+  /** 基金：更新市值；本金变更属于人工校准，必须留下审计。 */
   async setFund(id: string, input: { principal?: string; value?: string }): Promise<Card> {
     const existing = await db.cards.get(id);
     if (!existing || existing.type !== 'FUND') throw new Error('基金不存在');
     const patch: Partial<CardRow> = {};
-    if (input.principal !== undefined) patch.fundPrincipal = toCents(input.principal);
-    if (input.value !== undefined) patch.fundValue = toCents(input.value);
-    await db.cards.update(id, patch);
+    const nextPrincipal = input.principal === undefined ? undefined : toCents(input.principal);
+    const nextValue = input.value === undefined ? undefined : toCents(input.value);
+    if (nextPrincipal !== undefined && nextPrincipal < 0) throw new Error('基金本金不能为负数');
+    if (nextValue !== undefined && nextValue < 0) throw new Error('基金市值不能为负数');
+    if (nextPrincipal !== undefined) patch.fundPrincipal = nextPrincipal;
+    if (nextValue !== undefined) patch.fundValue = nextValue;
+    await db.transaction(
+      'rw',
+      [db.cards, db.assetTransfers, db.fundPrincipalLogs],
+      async () => {
+        const current = await db.cards.get(id);
+        if (!current || current.type !== 'FUND') throw new Error('基金不存在');
+        const previousPrincipal = current.fundPrincipal ?? current.initialBalance;
+        if (nextPrincipal !== undefined && nextPrincipal !== previousPrincipal) {
+          const transfers = await db.assetTransfers.where('targetCardId').equals(id).toArray();
+          const applied = transfers
+            .filter(
+              (row) => row.targetKind === 'FUND_PRINCIPAL' && row.principalApplied === 1,
+            )
+            .reduce((sum, row) => sum + row.amount, 0);
+          if (nextPrincipal < applied) {
+            throw new Error(`本金不能低于仍有效的划转合计 ${fromCents(applied)}`);
+          }
+          await db.fundPrincipalLogs.add({
+            id: newId(),
+            fundCardId: id,
+            previousAmount: previousPrincipal,
+            amount: nextPrincipal,
+            createdAt: nowTs(),
+          });
+        }
+        await db.cards.update(id, patch);
+      },
+    );
     return toDTO({ ...existing, ...patch });
   },
 
