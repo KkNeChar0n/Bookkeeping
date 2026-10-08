@@ -219,6 +219,75 @@ test('v15 migration keeps legacy fund final values and removes monthly fund tabl
   await Dexie.delete(name);
 });
 
+test('v17 migration applies safe legacy asset transfers to monthly balances', async () => {
+  const name = `bookkeeping-asset-transfer-migration-${crypto.randomUUID()}`;
+  const legacy = new Dexie(name);
+  legacy.version(16).stores({
+    cards: 'id, sortOrder, isDefault, type',
+    savingsActuals: 'id, &[cardId+month], cardId',
+    assetTransfers:
+      'id, date, sourceCardId, targetCardId, targetKind, [sourceCardId+date], [targetCardId+date]',
+  });
+  await legacy.open();
+  await legacy.table('cards').bulkAdd([
+    {
+      id: 'source',
+      name: '来源卡',
+      type: 'SAVINGS',
+      initialBalance: 10_000,
+      isDefault: 1,
+      sortOrder: 1,
+      createdAt: 1,
+    },
+    {
+      id: 'target',
+      name: '接收卡',
+      type: 'SAVINGS',
+      initialBalance: 0,
+      isDefault: 0,
+      sortOrder: 2,
+      createdAt: 2,
+    },
+  ]);
+  await legacy.table('assetTransfers').add({
+    id: 'old-transfer',
+    date: '2026-10-01',
+    sourceCardId: 'source',
+    targetKind: 'SAVINGS',
+    targetCardId: 'target',
+    amount: 1_000,
+    principalApplied: 0,
+    note: null,
+    createdAt: 1,
+  });
+  legacy.close();
+
+  const upgraded = new BookkeepingDB(name);
+  await upgraded.open();
+  const row = await upgraded.assetTransfers.get('old-transfer');
+  assert.equal(row?.savingsApplied, 1);
+  assert.equal(
+    (
+      await upgraded.savingsActuals
+        .where('[cardId+month]')
+        .equals(['source', '2026-10'])
+        .first()
+    )?.amount,
+    9_000,
+  );
+  assert.equal(
+    (
+      await upgraded.savingsActuals
+        .where('[cardId+month]')
+        .equals(['target', '2026-10'])
+        .first()
+    )?.amount,
+    1_000,
+  );
+  upgraded.close();
+  await Dexie.delete(name);
+});
+
 test('v13 migration removes legacy orphan rows and preserves valid historical statistics', async () => {
   const name = `bookkeeping-orphan-migration-${crypto.randomUUID()}`;
   const legacy = new Dexie(name);

@@ -92,7 +92,7 @@ test('legacy backup becomes one virtual account and avoids v8 quota double count
   assert.deepEqual(result.initialBalanceLogs, []);
   assert.deepEqual(result.assetTransfers, []);
   assert.deepEqual(result.fundPrincipalLogs, []);
-  assert.equal(result.version, 8);
+  assert.equal(result.version, 9);
   assert.equal('fundContributions' in result, false);
   assert.equal('fundSnapshots' in result, false);
   const again = normalizeBackupData(result);
@@ -172,6 +172,7 @@ test('v8 backup normalization preserves valid asset transfer and principal audit
   });
 
   assert.deepEqual(result.assetTransfers.map((row) => row.id), ['valid-transfer']);
+  assert.equal(result.assetTransfers[0].savingsApplied, 0);
   assert.deepEqual(result.fundPrincipalLogs.map((row) => row.id), ['valid-principal-log']);
 });
 

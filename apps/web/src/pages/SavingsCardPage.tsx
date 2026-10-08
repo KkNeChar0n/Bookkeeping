@@ -220,7 +220,11 @@ export function SavingsCardPage() {
               )
             )
               return;
-            await clearMonth.mutateAsync({ cardId: id, month });
+            try {
+              await clearMonth.mutateAsync({ cardId: id, month });
+            } catch (error) {
+              window.alert(error instanceof Error ? error.message : '清除失败');
+            }
           }}
           disabled={clearMonth.isPending}
         >
@@ -231,7 +235,7 @@ export function SavingsCardPage() {
       <div className="section-title">{month} · 资产划转</div>
       <div className="card">
         <div className="muted" style={{ fontSize: 12, marginBottom: 12 }}>
-          用于说明卡与卡、卡与基金之间的钱去了哪里；不会自动改写你填写的月度真实金额。
+          正常划转会同步扣减来源卡当月余额，并增加接收储蓄卡余额或基金本金；撤销时反向恢复。
         </div>
         <div className="field">
           <label>去向</label>
@@ -281,7 +285,7 @@ export function SavingsCardPage() {
               onChange={(event) => setPrincipalAlreadyIncluded(event.target.checked)}
             />
             <span>
-              历史补录：这笔钱已经包含在当前基金本金中（勾选后不会再次增加本金）
+              历史补录：这笔钱已经包含在当前余额和基金本金中（勾选后只补记录，不再改金额）
             </span>
           </label>
         )}

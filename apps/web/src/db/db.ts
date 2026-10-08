@@ -111,6 +111,7 @@ export interface AssetTransferRow {
   targetKind: 'SAVINGS' | 'FUND_PRINCIPAL';
   targetCardId: string;
   amount: number; // cents（正数）
+  savingsApplied: number; // 0/1；是否由本次操作更新过储蓄月度余额
   principalApplied: number; // 0/1；历史补录为 0，避免重复增加基金本金
   note: string | null;
   createdAt: number;
@@ -505,6 +506,79 @@ export class BookkeepingDB extends Dexie {
         'id, date, sourceCardId, targetCardId, targetKind, [sourceCardId+date], [targetCardId+date]',
       fundPrincipalLogs: 'id, fundCardId, [fundCardId+createdAt], createdAt',
     });
+
+    // v17：正常资产划转开始联动月度储蓄余额；旧记录只解释资金路径，不补改余额。
+    this.version(17)
+      .stores({
+        assetTransfers:
+          'id, date, sourceCardId, targetCardId, targetKind, [sourceCardId+date], [targetCardId+date]',
+      })
+      .upgrade(async (tx) => {
+        const cards = (await tx.table('cards').toArray()) as CardRow[];
+        const cardById = new Map(cards.map((card) => [card.id, card]));
+        const transferTable = tx.table('assetTransfers');
+        const actualTable = tx.table('savingsActuals');
+        const transfers = ((await transferTable.toArray()) as AssetTransferRow[]).sort(
+          (a, b) => a.date.localeCompare(b.date) || a.createdAt - b.createdAt,
+        );
+        const balanceForMonth = async (card: CardRow, month: string) => {
+          const exact = (await actualTable
+            .where('[cardId+month]')
+            .equals([card.id, month])
+            .first()) as SavingsActualRow | undefined;
+          if (exact) return { row: exact, amount: exact.amount };
+          const previous = ((await actualTable.where('cardId').equals(card.id).toArray()) as SavingsActualRow[])
+            .filter((row) => row.month < month)
+            .sort((a, b) => b.month.localeCompare(a.month))[0];
+          return { row: null, amount: previous?.amount ?? card.initialBalance };
+        };
+        const setBalance = async (
+          card: CardRow,
+          month: string,
+          current: { row: SavingsActualRow | null; amount: number },
+          amount: number,
+        ) => {
+          if (current.row) {
+            await actualTable.update(current.row.id, { amount, updatedAt: Date.now() });
+          } else {
+            await actualTable.add({
+              id: crypto.randomUUID(),
+              cardId: card.id,
+              month,
+              amount,
+              updatedAt: Date.now(),
+            } satisfies SavingsActualRow);
+          }
+        };
+
+        for (const row of transfers) {
+          if (row.savingsApplied !== undefined) continue;
+          const source = cardById.get(row.sourceCardId);
+          const target = cardById.get(row.targetCardId);
+          const normalTransfer =
+            row.targetKind === 'SAVINGS' ||
+            (row.targetKind === 'FUND_PRINCIPAL' && row.principalApplied === 1);
+          const validTarget =
+            row.targetKind === 'SAVINGS' ? target?.type === 'SAVINGS' : target?.type === 'FUND';
+          if (!normalTransfer || source?.type !== 'SAVINGS' || !target || !validTarget) {
+            await transferTable.update(row.id, { savingsApplied: 0 });
+            continue;
+          }
+          const month = row.date.slice(0, 7);
+          const sourceBalance = await balanceForMonth(source, month);
+          if (sourceBalance.amount < row.amount) {
+            await transferTable.update(row.id, { savingsApplied: 0 });
+            continue;
+          }
+          const targetBalance =
+            target.type === 'SAVINGS' ? await balanceForMonth(target, month) : null;
+          await setBalance(source, month, sourceBalance, sourceBalance.amount - row.amount);
+          if (target.type === 'SAVINGS' && targetBalance) {
+            await setBalance(target, month, targetBalance, targetBalance.amount + row.amount);
+          }
+          await transferTable.update(row.id, { savingsApplied: 1 });
+        }
+      });
 
     // Fresh installs skip upgrade callbacks, so seed the same internal account on populate.
     this.on('populate', () =>

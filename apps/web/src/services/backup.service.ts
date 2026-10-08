@@ -22,6 +22,9 @@ import { buildOrphanCleanupPlan } from '../domain/orphanCleanup';
 
 type LegacyConsumptionBudgetRow = ConsumptionBudgetRow & { consumptionCardId?: string };
 type LegacyBackupCardRow = CardRow & { savingsPurpose?: 'FUND_POOL' };
+type LegacyAssetTransferRow = Omit<AssetTransferRow, 'savingsApplied'> & {
+  savingsApplied?: number;
+};
 
 export interface BackupData {
   app: 'bookkeeping';
@@ -38,7 +41,7 @@ export interface BackupData {
   savingsEntries?: SavingsEntryRow[];
   savingsLogs?: SavingsLogRow[];
   initialBalanceLogs?: InitialBalanceLogRow[];
-  assetTransfers?: AssetTransferRow[];
+  assetTransfers?: LegacyAssetTransferRow[];
   fundPrincipalLogs?: FundPrincipalLogRow[];
   fundContributions?: LegacyFundContributionRow[];
   fundSnapshots?: LegacyFundSnapshotRow[];
@@ -126,7 +129,7 @@ export function normalizeBackupData(data: BackupData): NormalizedBackupData {
 
   const normalized = {
     app: 'bookkeeping' as const,
-    version: 8,
+    version: 9,
     exportedAt: data.exportedAt,
     cards: [...data.cards.filter((card) => card.type !== 'SPEND'), virtualCard()],
     budgetSnapshots: data.budgetSnapshots ?? [],
@@ -142,7 +145,13 @@ export function normalizeBackupData(data: BackupData): NormalizedBackupData {
     savingsEntries: data.savingsEntries ?? [],
     savingsLogs: data.savingsLogs ?? [],
     initialBalanceLogs: data.initialBalanceLogs ?? [],
-    assetTransfers: data.assetTransfers ?? [],
+    assetTransfers: (data.assetTransfers ?? []).map(
+      (row) =>
+        ({
+          ...row,
+          savingsApplied: row.savingsApplied === 1 ? 1 : 0,
+        }) satisfies AssetTransferRow,
+    ),
     fundPrincipalLogs: data.fundPrincipalLogs ?? [],
     consumptionBudgets: [...aggregated.values()],
   };
@@ -257,7 +266,7 @@ export const backupService = {
     ]);
     return {
       app: 'bookkeeping',
-      version: 8,
+      version: 9,
       exportedAt: new Date().toISOString(),
       cards,
       budgetSnapshots,

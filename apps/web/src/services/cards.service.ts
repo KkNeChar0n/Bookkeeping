@@ -138,6 +138,41 @@ export const cardsService = {
           (row) => row.sourceCardId === id || row.targetCardId === id,
         );
 
+        // 删除一端时，反向恢复仍保留储蓄卡受到的余额影响。
+        const savingsRollback = new Map<string, { cardId: string; month: string; delta: number }>();
+        for (const row of relatedAssetTransfers) {
+          if (row.savingsApplied !== 1) continue;
+          const month = row.date.slice(0, 7);
+          let cardId: string | null = null;
+          let delta = 0;
+          if (row.sourceCardId === id && row.targetKind === 'SAVINGS') {
+            cardId = row.targetCardId;
+            delta = -row.amount;
+          } else if (row.targetCardId === id) {
+            cardId = row.sourceCardId;
+            delta = row.amount;
+          }
+          if (!cardId || cardId === id) continue;
+          const key = `${cardId}|${month}`;
+          const current = savingsRollback.get(key);
+          savingsRollback.set(key, {
+            cardId,
+            month,
+            delta: (current?.delta ?? 0) + delta,
+          });
+        }
+        for (const rollback of savingsRollback.values()) {
+          const actual = await db.savingsActuals
+            .where('[cardId+month]')
+            .equals([rollback.cardId, rollback.month])
+            .first();
+          if (!actual) throw new Error('划转对应的月度余额不存在，无法删除卡片');
+          await db.savingsActuals.update(actual.id, {
+            amount: actual.amount + rollback.delta,
+            updatedAt: nowTs(),
+          });
+        }
+
         // 删除来源储蓄卡时，仍保留的目标基金需要同步回退实际应用过的本金。
         const principalRollbackByFund = new Map<string, number>();
         if (existing.type === 'SAVINGS') {
