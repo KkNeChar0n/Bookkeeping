@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { cardsService } from '../services/cards.service';
-import type { CardType, SavingsPurpose } from './types';
+import type { CardType } from './types';
 import { txService } from '../services/transactions.service';
 import { comparisonService } from '../services/comparison.service';
 import { summaryService } from '../services/summary.service';
@@ -17,7 +17,6 @@ import { reconciliationService } from '../services/reconciliation.service';
 import { incomeCompareService } from '../services/incomeCompare.service';
 import { categoriesService } from '../services/categories';
 import { initialBalanceLogService } from '../services/initialBalanceLog.service';
-import { fundService } from '../services/fund.service';
 
 // ---- 失效所有受余额影响的视图 ----
 function useInvalidateLedger() {
@@ -36,7 +35,6 @@ function useInvalidateLedger() {
     qc.invalidateQueries({ queryKey: ['reconciliation'] });
     qc.invalidateQueries({ queryKey: ['incomeCompare'] });
     qc.invalidateQueries({ queryKey: ['initialBalanceLogs'] });
-    qc.invalidateQueries({ queryKey: ['funds'] });
   };
 }
 
@@ -52,7 +50,6 @@ export function useCreateCard() {
       type?: CardType;
       initialBalance?: string;
       isDefault?: boolean;
-      savingsPurpose?: SavingsPurpose;
     }) => cardsService.create(body),
     onSuccess: inv,
   });
@@ -387,72 +384,13 @@ export function useSpendPeriod(prefix: string) {
     queryFn: () => spendService.periodView(prefix),
   });
 }
-export function useFundPoolMonth(sourceCardId: string, month: string) {
-  return useQuery({
-    queryKey: ['funds', 'pool', sourceCardId, month],
-    queryFn: () => fundService.poolMonth(sourceCardId, month),
-    enabled: !!sourceCardId && !!month,
-  });
-}
-
-export function useCreateFundContribution() {
+// ---- 基金：直填本金/市值 ----
+export function useSetFund() {
   const inv = useInvalidateLedger();
   return useMutation({
-    mutationFn: (body: {
-      sourceCardId: string;
-      month: string;
-      allocations: Array<{ fundCardId: string; amount: string }>;
-    }) => fundService.createContributionBatch(body),
+    mutationFn: ({ id, ...body }: { id: string; principal?: string; value?: string }) =>
+      cardsService.setFund(id, body),
     onSuccess: inv,
-  });
-}
-
-export function useUndoFundContribution() {
-  const inv = useInvalidateLedger();
-  return useMutation({
-    mutationFn: (batchId: string) => fundService.undoContributionBatch(batchId),
-    onSuccess: inv,
-  });
-}
-
-export function useFundSnapshotHistory(fundCardId: string) {
-  return useQuery({
-    queryKey: ['funds', 'history', fundCardId],
-    queryFn: () => fundService.snapshotHistory(fundCardId),
-    enabled: !!fundCardId,
-  });
-}
-
-export function useSetFundMonthEndValue() {
-  const inv = useInvalidateLedger();
-  return useMutation({
-    mutationFn: (body: { fundCardId: string; month: string; value: string }) =>
-      fundService.setMonthEndValue(body),
-    onSuccess: inv,
-  });
-}
-
-export function useFundPosition(fundCardId: string, month: string) {
-  return useQuery({
-    queryKey: ['funds', 'position', fundCardId, month],
-    queryFn: () => fundService.positionAsOf(fundCardId, month),
-    enabled: !!fundCardId && !!month,
-  });
-}
-
-export function useFundPositionsAsOf(month: string) {
-  return useQuery({
-    queryKey: ['funds', 'positions', month],
-    queryFn: () => fundService.positionsAsOf(month),
-    enabled: !!month,
-  });
-}
-
-export function useFundPeriodPositions(prefix: string) {
-  return useQuery({
-    queryKey: ['funds', 'period', prefix],
-    queryFn: () => fundService.periodPositions(prefix),
-    enabled: !!prefix,
   });
 }
 

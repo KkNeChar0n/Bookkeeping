@@ -6,9 +6,9 @@ import {
   type CardRow,
   type CategoryRow,
   type ConsumptionBudgetRow,
-  type FundContributionRow,
-  type FundSnapshotRow,
   type InitialBalanceLogRow,
+  type LegacyFundContributionRow,
+  type LegacyFundSnapshotRow,
   type SavingsActualRow,
   type SavingsEntryRow,
   type SavingsLogRow,
@@ -19,12 +19,13 @@ import { VIRTUAL_CONSUMPTION_CARD_ID, VIRTUAL_CONSUMPTION_CARD_NAME } from '../d
 import { buildOrphanCleanupPlan } from '../domain/orphanCleanup';
 
 type LegacyConsumptionBudgetRow = ConsumptionBudgetRow & { consumptionCardId?: string };
+type LegacyBackupCardRow = CardRow & { savingsPurpose?: 'FUND_POOL' };
 
 export interface BackupData {
   app: 'bookkeeping';
   version: number;
   exportedAt: string;
-  cards: CardRow[];
+  cards: LegacyBackupCardRow[];
   budgetSnapshots: BudgetSnapshotRow[];
   budgetLines: BudgetLineRow[];
   transactions: TransactionRow[];
@@ -35,15 +36,17 @@ export interface BackupData {
   savingsEntries?: SavingsEntryRow[];
   savingsLogs?: SavingsLogRow[];
   initialBalanceLogs?: InitialBalanceLogRow[];
-  fundContributions?: FundContributionRow[];
-  fundSnapshots?: FundSnapshotRow[];
+  fundContributions?: LegacyFundContributionRow[];
+  fundSnapshots?: LegacyFundSnapshotRow[];
   consumptionBudgets?: LegacyConsumptionBudgetRow[];
 }
 
-export interface NormalizedBackupData extends Omit<
-  BackupData,
-  'consumptionBudgets' | 'spendQuotas'
-> {
+export interface NormalizedBackupData
+  extends Omit<
+    BackupData,
+    'cards' | 'consumptionBudgets' | 'spendQuotas' | 'fundContributions' | 'fundSnapshots'
+  > {
+  cards: CardRow[];
   consumptionBudgets: ConsumptionBudgetRow[];
 }
 
@@ -70,21 +73,6 @@ export function normalizeBackupData(data: BackupData): NormalizedBackupData {
   const funder = savings.find((card) => card.isDefault) ?? savings[0];
   const aggregated = new Map<string, ConsumptionBudgetRow>();
   const monthsWithBudget = new Set<string>();
-  const exportedMonth = /^\d{4}-\d{2}/.test(data.exportedAt)
-    ? data.exportedAt.slice(0, 7)
-    : new Date().toISOString().slice(0, 7);
-  const fundSnapshots =
-    data.fundSnapshots !== undefined
-      ? data.fundSnapshots
-      : data.cards
-          .filter((card) => card.type === 'FUND')
-          .map((card): FundSnapshotRow => ({
-            id: crypto.randomUUID(),
-            fundCardId: card.id,
-            month: exportedMonth,
-            value: card.fundValue ?? card.initialBalance,
-            updatedAt: Date.parse(data.exportedAt) || Date.now(),
-          }));
 
   for (const row of data.consumptionBudgets ?? []) {
     monthsWithBudget.add(row.month);
@@ -124,9 +112,9 @@ export function normalizeBackupData(data: BackupData): NormalizedBackupData {
     }
   }
 
-  const normalized: NormalizedBackupData = {
-    app: 'bookkeeping',
-    version: 6,
+  const normalized = {
+    app: 'bookkeeping' as const,
+    version: 7,
     exportedAt: data.exportedAt,
     cards: [...data.cards.filter((card) => card.type !== 'SPEND'), virtualCard()],
     budgetSnapshots: data.budgetSnapshots ?? [],
@@ -142,8 +130,6 @@ export function normalizeBackupData(data: BackupData): NormalizedBackupData {
     savingsEntries: data.savingsEntries ?? [],
     savingsLogs: data.savingsLogs ?? [],
     initialBalanceLogs: data.initialBalanceLogs ?? [],
-    fundContributions: data.fundContributions ?? [],
-    fundSnapshots,
     consumptionBudgets: [...aggregated.values()],
   };
   const plan = buildOrphanCleanupPlan({
@@ -157,15 +143,48 @@ export function normalizeBackupData(data: BackupData): NormalizedBackupData {
     savingsLogs: normalized.savingsLogs ?? [],
     initialBalanceLogs: normalized.initialBalanceLogs ?? [],
     consumptionBudgets: normalized.consumptionBudgets,
-    fundContributions: normalized.fundContributions ?? [],
-    fundSnapshots: normalized.fundSnapshots ?? [],
+    fundContributions: data.fundContributions ?? [],
+    fundSnapshots: data.fundSnapshots ?? [],
   });
   const keep = <T extends { id: string }>(rows: T[], deletedIds: string[]) => {
     const deleted = new Set(deletedIds);
     return rows.filter((row) => !deleted.has(row.id));
   };
+  const validContributions = keep(data.fundContributions ?? [], plan.fundContributionIds);
+  const validSnapshots = keep(data.fundSnapshots ?? [], plan.fundSnapshotIds);
+  const contributionsByFund = new Map<string, number>();
+  for (const row of validContributions) {
+    contributionsByFund.set(
+      row.fundCardId,
+      (contributionsByFund.get(row.fundCardId) ?? 0) + row.amount,
+    );
+  }
+  const latestSnapshotByFund = new Map<string, LegacyFundSnapshotRow>();
+  for (const row of validSnapshots) {
+    const current = latestSnapshotByFund.get(row.fundCardId);
+    if (
+      !current ||
+      row.month > current.month ||
+      (row.month === current.month && row.updatedAt > current.updatedAt)
+    ) {
+      latestSnapshotByFund.set(row.fundCardId, row);
+    }
+  }
+  const cards: CardRow[] = (normalized.cards as LegacyBackupCardRow[]).map((legacyCard) => {
+    const card = { ...legacyCard };
+    delete card.savingsPurpose;
+    if (card.type !== 'FUND') return card;
+    const latest = latestSnapshotByFund.get(card.id);
+    return {
+      ...card,
+      fundPrincipal:
+        (card.fundPrincipal ?? card.initialBalance) + (contributionsByFund.get(card.id) ?? 0),
+      ...(latest ? { fundValue: latest.value } : {}),
+    };
+  });
   return {
     ...normalized,
+    cards,
     budgetLines: keep(normalized.budgetLines, plan.budgetLineIds),
     transactions: keep(normalized.transactions, plan.transactionIds),
     budgetDetails: keep(normalized.budgetDetails ?? [], plan.budgetDetailIds),
@@ -174,8 +193,6 @@ export function normalizeBackupData(data: BackupData): NormalizedBackupData {
     savingsLogs: keep(normalized.savingsLogs ?? [], plan.savingsLogIds),
     initialBalanceLogs: keep(normalized.initialBalanceLogs ?? [], plan.initialBalanceLogIds),
     consumptionBudgets: keep(normalized.consumptionBudgets, plan.consumptionBudgetIds),
-    fundContributions: keep(normalized.fundContributions ?? [], plan.fundContributionIds),
-    fundSnapshots: keep(normalized.fundSnapshots ?? [], plan.fundSnapshotIds),
   };
 }
 
@@ -192,8 +209,6 @@ export const backupService = {
       savingsEntries,
       savingsLogs,
       initialBalanceLogs,
-      fundContributions,
-      fundSnapshots,
       consumptionBudgets,
     ] = await Promise.all([
       db.cards.toArray(),
@@ -206,13 +221,11 @@ export const backupService = {
       db.savingsEntries.toArray(),
       db.savingsLogs.toArray(),
       db.initialBalanceLogs.toArray(),
-      db.fundContributions.toArray(),
-      db.fundSnapshots.toArray(),
       db.consumptionBudgets.toArray(),
     ]);
     return {
       app: 'bookkeeping',
-      version: 6,
+      version: 7,
       exportedAt: new Date().toISOString(),
       cards,
       budgetSnapshots,
@@ -224,8 +237,6 @@ export const backupService = {
       savingsEntries,
       savingsLogs,
       initialBalanceLogs,
-      fundContributions,
-      fundSnapshots,
       consumptionBudgets,
     };
   },
@@ -262,8 +273,6 @@ export const backupService = {
         db.savingsEntries,
         db.savingsLogs,
         db.initialBalanceLogs,
-        db.fundContributions,
-        db.fundSnapshots,
         db.consumptionBudgets,
       ],
       async () => {
@@ -278,8 +287,6 @@ export const backupService = {
           db.savingsEntries.clear(),
           db.savingsLogs.clear(),
           db.initialBalanceLogs.clear(),
-          db.fundContributions.clear(),
-          db.fundSnapshots.clear(),
           db.consumptionBudgets.clear(),
         ]);
         await db.cards.bulkAdd(data.cards);
@@ -292,8 +299,6 @@ export const backupService = {
         await db.savingsEntries.bulkAdd(data.savingsEntries ?? []);
         await db.savingsLogs.bulkAdd(data.savingsLogs ?? []);
         await db.initialBalanceLogs.bulkAdd(data.initialBalanceLogs ?? []);
-        await db.fundContributions.bulkAdd(data.fundContributions ?? []);
-        await db.fundSnapshots.bulkAdd(data.fundSnapshots ?? []);
         await db.consumptionBudgets.bulkAdd(data.consumptionBudgets);
       },
     );
@@ -321,8 +326,6 @@ export const backupService = {
         db.savingsEntries,
         db.savingsLogs,
         db.initialBalanceLogs,
-        db.fundContributions,
-        db.fundSnapshots,
         db.consumptionBudgets,
       ],
       async () => {
@@ -339,8 +342,6 @@ export const backupService = {
           db.savingsEntries.clear(),
           db.savingsLogs.clear(),
           db.initialBalanceLogs.clear(),
-          db.fundContributions.clear(),
-          db.fundSnapshots.clear(),
           db.consumptionBudgets.clear(),
         ]);
         await db.cards.put(virtualCard());

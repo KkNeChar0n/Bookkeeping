@@ -18,16 +18,6 @@ export const savingsActualService = {
   /** 某卡某月填写真实储蓄额（每月唯一，upsert） */
   async setAmount(input: { cardId: string; month: string; amount: string }): Promise<void> {
     const amt = toCents(input.amount);
-    const card = await db.cards.get(input.cardId);
-    if (!card) throw new Error('卡片不存在');
-    if (card.savingsPurpose === 'FUND_POOL') {
-      const contributions = await db.fundContributions
-        .where('[sourceCardId+month]')
-        .equals([input.cardId, input.month])
-        .toArray();
-      const allocated = contributions.reduce((sum, row) => sum + row.amount, 0);
-      if (amt < allocated) throw new Error('月初可投资金额不能小于当月已注资金额');
-    }
     const existing = await db.savingsActuals
       .where('[cardId+month]')
       .equals([input.cardId, input.month])

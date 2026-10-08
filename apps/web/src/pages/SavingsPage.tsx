@@ -49,9 +49,7 @@ function SavingsRow({ card, open, onToggle }: { card: Card; open: boolean; onTog
       <div className="stack-head" onClick={onToggle}>
         <div className="stack-name">
           <span>{card.name}</span>
-          <span className="type-tag">
-            {card.savingsPurpose === 'FUND_POOL' ? '基金资金卡' : '储蓄卡'}
-          </span>
+          <span className="type-tag">储蓄卡</span>
         </div>
         <div className="stack-nums">
           <span>{current !== undefined ? fmtMoney(current) : '未填'}</span>
@@ -84,7 +82,7 @@ function SavingsRow({ card, open, onToggle }: { card: Card; open: boolean; onTog
             <div className="muted">还没有记录</div>
           )}
           <button className="mini mt" onClick={() => navigate(`/savings/${card.id}`)}>
-            {card.savingsPurpose === 'FUND_POOL' ? '月初金额 / 注资' : '填写 / 编辑'}
+            填写 / 编辑
           </button>
         </div>
       )}

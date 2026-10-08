@@ -1,16 +1,14 @@
 import { useState } from 'react';
 import { useCreateCard } from '../api/hooks';
-import type { CardType, SavingsPurpose } from '../api/types';
+import type { CardType } from '../api/types';
 
 /** Only user-managed cards can be created; consumption is a system account. */
 export function CreateCardForm({
   type,
   placeholder,
-  savingsPurpose,
 }: {
   type: Exclude<CardType, 'SPEND'>;
   placeholder: string;
-  savingsPurpose?: SavingsPurpose;
 }) {
   const create = useCreateCard();
   const [name, setName] = useState('');
@@ -24,7 +22,6 @@ export function CreateCardForm({
         name,
         type,
         initialBalance: initial || '0',
-        savingsPurpose,
       });
       setName('');
       setInitial('');

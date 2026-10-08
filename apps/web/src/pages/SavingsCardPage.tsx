@@ -6,17 +6,13 @@ import {
   useClearSavingsMonth,
   useConsumptionBudget,
   useConsumptionFunding,
-  useCreateFundContribution,
-  useFundPoolMonth,
   useSavingsEntries,
   useSavingsList,
   useSavingsLogs,
   useSetConsumptionBudget,
   useSetSavingsAmount,
   useSetSavingsEntry,
-  useUndoFundContribution,
 } from '../api/hooks';
-import type { Card } from '../api/types';
 import { CardManageBar } from '../components/CardManageBar';
 import { currentMonthStr, fmtDateTime, fmtMoney } from '../lib/format';
 
@@ -33,38 +29,33 @@ export function SavingsCardPage() {
   const setCBudget = useSetConsumptionBudget();
   const clearMonth = useClearSavingsMonth();
 
-  const card = cards.data?.find((c) => c.id === id);
+  const card = cards.data?.find((item) => item.id === id);
   const [month, setMonth] = useState(currentMonthStr());
-
   const rows = list.data ?? [];
-  const existing = rows.find((r) => r.month === month);
-
+  const existing = rows.find((row) => row.month === month);
   const entries = useSavingsEntries(id, month);
   const logs = useSavingsLogs(id, month);
   const budget = useConsumptionBudget(id, month);
   const funding = useConsumptionFunding(month);
   const incomeTotal = (entries.data ?? [])
-    .filter((e) => e.kind === 'INCOME')
-    .reduce((s, e) => s + Number(e.amount), 0);
+    .filter((entry) => entry.kind === 'INCOME')
+    .reduce((sum, entry) => sum + Number(entry.amount), 0);
   const excessTotal = (entries.data ?? [])
-    .filter((e) => e.kind === 'EXCESS')
-    .reduce((s, e) => s + Number(e.amount), 0);
+    .filter((entry) => entry.kind === 'EXCESS')
+    .reduce((sum, entry) => sum + Number(entry.amount), 0);
 
-  // 三个框：真实储蓄金额 / 本月收入 / 超额支出
   const [amount, setAmount] = useState('');
   const [income, setIncome] = useState('');
   const [excess, setExcess] = useState('');
   const [budgetInput, setBudgetInput] = useState('');
   const [saving, setSaving] = useState(false);
 
-  // 每次切月/重新进入，回显这三个框当前已保存的值（改了就是覆盖，不是累加）
   useEffect(() => {
     setAmount(existing ? existing.amount : '');
     setIncome(incomeTotal > 0 ? String(incomeTotal) : '');
     setExcess(excessTotal > 0 ? String(excessTotal) : '');
-  }, [month, existing?.amount, incomeTotal, excessTotal]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [month, existing?.amount, incomeTotal, excessTotal]);
 
-  // 回显本储蓄卡对全局消费预算的当月贡献。
   useEffect(() => {
     setBudgetInput(budget.data ?? '');
   }, [month, budget.data]);
@@ -74,23 +65,20 @@ export function SavingsCardPage() {
   const prospectiveGlobalBudget = savedGlobalBudget - savedContribution + Number(budgetInput || 0);
   const fundingRow = funding.data?.rows.find((row) => row.savingsCardId === id);
 
-  // 一个按钮同时提交三个框的改动；每项若真的变了就留一条带时间戳的流水，然后返回
   const saveAll = async () => {
     setSaving(true);
     try {
-      const amtNew = amount === '' ? null : Number(amount);
-      const amtOld = existing ? Number(existing.amount) : null;
-      if (amtNew !== null && amtNew !== amtOld) {
+      const nextAmount = amount === '' ? null : Number(amount);
+      const oldAmount = existing ? Number(existing.amount) : null;
+      if (nextAmount !== null && nextAmount !== oldAmount) {
         await addLog.mutateAsync({ cardId: id, month, field: 'AMOUNT', amount });
         await setAmt.mutateAsync({ cardId: id, month, amount });
       }
-      const incNew = Number(income || 0);
-      if (incNew !== incomeTotal) {
+      if (Number(income || 0) !== incomeTotal) {
         await addLog.mutateAsync({ cardId: id, month, field: 'INCOME', amount: income || '0' });
         await setEntry.mutateAsync({ cardId: id, month, kind: 'INCOME', amount: income || '0' });
       }
-      const excNew = Number(excess || 0);
-      if (excNew !== excessTotal) {
+      if (Number(excess || 0) !== excessTotal) {
         await addLog.mutateAsync({ cardId: id, month, field: 'EXCESS', amount: excess || '0' });
         await setEntry.mutateAsync({ cardId: id, month, kind: 'EXCESS', amount: excess || '0' });
       }
@@ -105,10 +93,6 @@ export function SavingsCardPage() {
 
   const logRows = logs.data ?? [];
 
-  if (card?.savingsPurpose === 'FUND_POOL') {
-    return <FundPoolCardPage card={card} />;
-  }
-
   return (
     <div>
       <div className="detail-header">
@@ -122,13 +106,11 @@ export function SavingsCardPage() {
         <span style={{ width: 40 }} />
       </div>
 
-      {/* 一个大卡片：月份 + 真实储蓄金额 + 本月收入 + 超额支出 + 保存并返回 */}
       <div className="card">
         <div className="field">
           <label>月份</label>
-          <input type="month" value={month} onChange={(e) => setMonth(e.target.value)} />
+          <input type="month" value={month} onChange={(event) => setMonth(event.target.value)} />
         </div>
-
         <div className="field">
           <label>真实储蓄金额</label>
           <input
@@ -136,10 +118,9 @@ export function SavingsCardPage() {
             step="0.01"
             placeholder="填写真实储蓄金额"
             value={amount}
-            onChange={(e) => setAmount(e.target.value)}
+            onChange={(event) => setAmount(event.target.value)}
           />
         </div>
-
         <div className="field">
           <label>本月收入</label>
           <input
@@ -147,10 +128,9 @@ export function SavingsCardPage() {
             step="0.01"
             placeholder="0（可留空）"
             value={income}
-            onChange={(e) => setIncome(e.target.value)}
+            onChange={(event) => setIncome(event.target.value)}
           />
         </div>
-
         <div className="field">
           <label>超额充值 · 额外充给全局消费账户的钱</label>
           <input
@@ -158,10 +138,9 @@ export function SavingsCardPage() {
             step="0.01"
             placeholder="0（可留空）"
             value={excess}
-            onChange={(e) => setExcess(e.target.value)}
+            onChange={(event) => setExcess(event.target.value)}
           />
         </div>
-
         <div className="divider" />
         <div className="field" style={{ margin: 0 }}>
           <label>本卡对 {month} 全局消费预算的贡献</label>
@@ -183,7 +162,6 @@ export function SavingsCardPage() {
             </div>
           )}
         </div>
-
         <button className="primary" onClick={saveAll} disabled={saving}>
           保存并返回
         </button>
@@ -205,28 +183,27 @@ export function SavingsCardPage() {
         </button>
       </div>
 
-      {/* 本月修改流水（只读）：每次把某项改成某值都留一条，带时间戳，最新在前 */}
       <div className="section-title">{month} · 修改流水</div>
       <div className="card">
         {logRows.length ? (
-          logRows.map((l) => {
-            const cleared = Number(l.amount) === 0 && l.field !== 'AMOUNT';
-            const cls = l.field === 'INCOME' ? 'in' : l.field === 'EXCESS' ? 'out' : 'neutral';
+          logRows.map((log) => {
+            const cleared = Number(log.amount) === 0 && log.field !== 'AMOUNT';
+            const cls = log.field === 'INCOME' ? 'in' : log.field === 'EXCESS' ? 'out' : 'neutral';
             const sign = cleared
               ? ''
-              : l.field === 'INCOME'
+              : log.field === 'INCOME'
                 ? '+'
-                : l.field === 'EXCESS'
+                : log.field === 'EXCESS'
                   ? '−'
                   : '';
             return (
-              <div className="tx" key={l.id}>
+              <div className="tx" key={log.id}>
                 <div>
-                  <div>{FIELD_LABEL[l.field]}</div>
-                  <div className="meta">{fmtDateTime(l.createdAt)}</div>
+                  <div>{FIELD_LABEL[log.field]}</div>
+                  <div className="meta">{fmtDateTime(log.createdAt)}</div>
                 </div>
                 <span className={`amt ${cls}`}>
-                  {cleared ? '清空' : `${sign}${fmtMoney(l.amount)}`}
+                  {cleared ? '清空' : `${sign}${fmtMoney(log.amount)}`}
                 </span>
               </div>
             );
@@ -245,191 +222,6 @@ export function SavingsCardPage() {
           onDeleted={() => navigate('/savings')}
         />
       )}
-    </div>
-  );
-}
-
-function FundPoolCardPage({ card }: { card: Card }) {
-  const navigate = useNavigate();
-  const cards = useCards();
-  const [month, setMonth] = useState(currentMonthStr());
-  const pool = useFundPoolMonth(card.id, month);
-  const setAmount = useSetSavingsAmount();
-  const addLog = useAddSavingsLog();
-  const contribute = useCreateFundContribution();
-  const undo = useUndoFundContribution();
-  const [startingAmount, setStartingAmount] = useState('');
-  const [allocations, setAllocations] = useState<Record<string, string>>({});
-  const [message, setMessage] = useState('');
-  const funds = (cards.data ?? []).filter((row) => row.type === 'FUND');
-
-  useEffect(() => {
-    setStartingAmount(pool.data?.startingAmount ?? '');
-    setAllocations({});
-    setMessage('');
-  }, [month, pool.data?.startingAmount]);
-
-  const saveStartingAmount = async () => {
-    if (startingAmount.trim() === '') return;
-    setMessage('');
-    try {
-      if (Number(startingAmount) !== Number(pool.data?.startingAmount ?? 0)) {
-        await addLog.mutateAsync({
-          cardId: card.id,
-          month,
-          field: 'AMOUNT',
-          amount: startingAmount,
-        });
-        await setAmount.mutateAsync({ cardId: card.id, month, amount: startingAmount });
-      }
-      setMessage('月初可投资金额已保存');
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : '保存失败');
-    }
-  };
-
-  const submitContribution = async () => {
-    setMessage('');
-    try {
-      await contribute.mutateAsync({
-        sourceCardId: card.id,
-        month,
-        allocations: funds.map((fund) => ({
-          fundCardId: fund.id,
-          amount: allocations[fund.id] ?? '',
-        })),
-      });
-      setAllocations({});
-      setMessage('注资已记录');
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : '注资失败');
-    }
-  };
-
-  return (
-    <div>
-      <div className="detail-header">
-        <button className="ghost" onClick={() => navigate('/savings')}>
-          ‹ 储蓄
-        </button>
-        <div className="detail-title">
-          <strong>{card.name}</strong>
-          <span className="type-tag">基金资金卡</span>
-        </div>
-        <span style={{ width: 40 }} />
-      </div>
-
-      <div className="card">
-        <div className="field">
-          <label>月份</label>
-          <input type="month" value={month} onChange={(event) => setMonth(event.target.value)} />
-        </div>
-        <div className="field">
-          <label>月初可投资金额</label>
-          <input
-            type="number"
-            step="0.01"
-            placeholder="本月转入资金卡的金额"
-            value={startingAmount}
-            onChange={(event) => setStartingAmount(event.target.value)}
-          />
-        </div>
-        <button
-          className="primary"
-          onClick={saveStartingAmount}
-          disabled={!startingAmount || setAmount.isPending}
-        >
-          保存月初金额
-        </button>
-        <div className="stat mt">
-          <div className="box">
-            <div className="k">已注资</div>
-            <div className="v">{fmtMoney(pool.data?.allocated ?? '0')}</div>
-          </div>
-          <div className="box">
-            <div className="k">尚可注资</div>
-            <div className="v">
-              {pool.data?.available === null || pool.data?.available === undefined
-                ? '未填'
-                : fmtMoney(pool.data.available)}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="section-title">{month} · 月末给基金注资</div>
-      <div className="card">
-        {funds.length ? (
-          funds.map((fund) => (
-            <div className="field" key={fund.id}>
-              <label>{fund.name}</label>
-              <input
-                type="number"
-                step="0.01"
-                placeholder="0.00"
-                value={allocations[fund.id] ?? ''}
-                onChange={(event) =>
-                  setAllocations((current) => ({ ...current, [fund.id]: event.target.value }))
-                }
-              />
-            </div>
-          ))
-        ) : (
-          <div className="muted">请先在“基金”页新建基金。</div>
-        )}
-        <button
-          className="primary"
-          onClick={submitContribution}
-          disabled={
-            !funds.length ||
-            contribute.isPending ||
-            !Object.values(allocations).some((value) => Number(value) > 0)
-          }
-        >
-          确认注资
-        </button>
-        {message && <div className="muted mt">{message}</div>}
-      </div>
-
-      <div className="section-title">{month} · 注资记录</div>
-      <div className="card">
-        {pool.data?.batches.length ? (
-          pool.data.batches.map((batch) => (
-            <div className="tx" key={batch.batchId}>
-              <div>
-                <div>
-                  {batch.items
-                    .map((item) => `${item.fundName} ${fmtMoney(item.amount)}`)
-                    .join(' · ')}
-                </div>
-                <div className="meta">
-                  {fmtDateTime(batch.createdAt)} · 合计 {fmtMoney(batch.total)}
-                </div>
-              </div>
-              <button
-                className="mini danger"
-                onClick={async () => {
-                  if (!window.confirm(`撤销本批注资 ${fmtMoney(batch.total)}？`)) return;
-                  await undo.mutateAsync(batch.batchId);
-                }}
-                disabled={undo.isPending}
-              >
-                撤销
-              </button>
-            </div>
-          ))
-        ) : (
-          <div className="muted">本月还没有注资记录</div>
-        )}
-      </div>
-
-      <CardManageBar
-        cardId={card.id}
-        name={card.name}
-        initialBalance={card.initialBalance}
-        showInitial
-        onDeleted={() => navigate('/savings')}
-      />
     </div>
   );
 }

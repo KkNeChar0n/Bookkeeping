@@ -1,27 +1,19 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import {
-  useCards,
-  useDeleteCard,
-  useFundPosition,
-  useFundSnapshotHistory,
-  useSetFundMonthEndValue,
-  useUpdateCard,
-} from '../api/hooks';
+import { useNavigate, useParams } from 'react-router-dom';
+import { useCardViews, useCards, useDeleteCard, useSetFund, useUpdateCard } from '../api/hooks';
 import { CARD_TYPE_LABEL } from '../api/types';
-import { currentMonthStr, fmtDateTime, fmtMoney, fmtSigned } from '../lib/format';
+import { fmtMoney, fmtSigned } from '../lib/format';
 
+/** User-managed card detail is fund-only; consumption has its own workspace. */
 export function CardDetailPage() {
   const { id = '' } = useParams();
-  const [params] = useSearchParams();
   const navigate = useNavigate();
   const cards = useCards();
   const update = useUpdateCard();
   const removeCard = useDeleteCard();
   const card = cards.data?.find((row) => row.id === id);
-  const [month, setMonth] = useState(params.get('month') || currentMonthStr());
 
-  if (!card)
+  if (!card) {
     return (
       <div>
         <button className="ghost" onClick={() => navigate(-1)}>
@@ -30,7 +22,8 @@ export function CardDetailPage() {
         <div className="muted mt">卡片不存在</div>
       </div>
     );
-  if (card.type !== 'FUND')
+  }
+  if (card.type !== 'FUND') {
     return (
       <div>
         <button className="ghost" onClick={() => navigate(-1)}>
@@ -39,14 +32,14 @@ export function CardDetailPage() {
         <div className="muted mt">该卡没有独立的基金详情页</div>
       </div>
     );
+  }
 
   const rename = () => {
     const value = window.prompt('新名称', card.name);
     if (value?.trim()) update.mutate({ id, name: value.trim() });
   };
   const remove = async () => {
-    if (!window.confirm(`确定删除「${card.name}」及其全部月度市值和注资记录？此操作不可撤销。`))
-      return;
+    if (!window.confirm(`确定删除「${card.name}」及其全部关联数据？此操作不可撤销。`)) return;
     await removeCard.mutateAsync(id);
     navigate('/fund');
   };
@@ -70,102 +63,88 @@ export function CardDetailPage() {
           </button>
         </div>
       </div>
-      <FundDetail cardId={id} month={month} setMonth={setMonth} />
+      <FundDetail
+        cardId={id}
+        initialPrincipal={card.fundPrincipal ?? '0'}
+        initialValue={card.fundValue ?? '0'}
+      />
     </div>
   );
 }
 
 function FundDetail({
   cardId,
-  month,
-  setMonth,
+  initialPrincipal,
+  initialValue,
 }: {
   cardId: string;
-  month: string;
-  setMonth: (month: string) => void;
+  initialPrincipal: string;
+  initialValue: string;
 }) {
-  const position = useFundPosition(cardId, month);
-  const history = useFundSnapshotHistory(cardId);
-  const setValue = useSetFundMonthEndValue();
-  const [value, setValueInput] = useState('');
+  const views = useCardViews();
+  const setFund = useSetFund();
   const [message, setMessage] = useState('');
-  const exact = history.data?.find((row) => row.month === month);
+  const view = views.data?.find((row) => row.cardId === cardId);
+  const [principal, setPrincipal] = useState(initialPrincipal);
+  const [value, setValue] = useState(initialValue);
 
   useEffect(() => {
-    setValueInput(exact?.value ?? '');
-    setMessage('');
-  }, [month, exact?.value]);
+    setPrincipal(initialPrincipal);
+    setValue(initialValue);
+  }, [initialPrincipal, initialValue]);
 
   const save = async () => {
-    if (value.trim() === '') return;
     setMessage('');
-    try {
-      await setValue.mutateAsync({ fundCardId: cardId, month, value });
-      setMessage(`${month} 月末市值已保存`);
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : '保存失败');
-    }
+    const body: { id: string; principal?: string; value?: string } = { id: cardId };
+    if (principal !== '') body.principal = principal;
+    if (value !== '') body.value = value;
+    if (!body.principal && !body.value) return;
+    await setFund.mutateAsync(body);
+    setMessage('已更新');
   };
-  const current = position.data;
-  const profit = Number(current?.profit ?? 0);
+  const profit = Number(view?.profit ?? 0);
 
   return (
     <>
       <div className="card">
-        <div className="field">
-          <label>月份</label>
-          <input type="month" value={month} onChange={(event) => setMonth(event.target.value)} />
-        </div>
         <div className="swipe-balance">
-          <span className="muted">月末市值</span>
-          <div className="big">
-            {current?.value === null || !current ? '未填' : fmtMoney(current.value)}
-          </div>
-          {current && (
-            <div className={`muted ${current.profit === null ? '' : profit >= 0 ? 'pos' : 'neg'}`}>
-              {current.profit === null ? '该月没有市值快照' : `盈亏 ${fmtSigned(current.profit)}`} ·
-              本金 {fmtMoney(current.principal)}
+          <span className="muted">市值</span>
+          <div className="big">{fmtMoney(view?.balance ?? '0')}</div>
+          {view && (
+            <div className={`muted ${profit >= 0 ? 'pos' : 'neg'}`}>
+              盈亏 {fmtSigned(view.profit)}
+              {view.profitPct !== null
+                ? `（${view.profitPct > 0 ? '+' : ''}${view.profitPct}%）`
+                : ''}{' '}
+              · 本金 {fmtMoney(view.principal)}
             </div>
           )}
         </div>
       </div>
-
-      <div className="section-title">记录 {month} 月末金额</div>
+      <div className="section-title">更新（从基金 App 抄这两个数）</div>
       <div className="card">
         <div className="field">
-          <label>月末市值</label>
+          <label>累计投入 · 本金</label>
           <input
             type="number"
             step="0.01"
-            placeholder="从基金 App 抄当前市值"
-            value={value}
-            onChange={(event) => setValueInput(event.target.value)}
+            value={principal}
+            onChange={(event) => setPrincipal(event.target.value)}
           />
         </div>
-        <div className="muted" style={{ fontSize: 12, marginBottom: 10 }}>
-          本金由基金资金卡的注资记录自动计算，不能在这里修改。
+        <div className="field">
+          <label>当前市值</label>
+          <input
+            type="number"
+            step="0.01"
+            value={value}
+            onChange={(event) => setValue(event.target.value)}
+          />
         </div>
-        <button className="primary" onClick={save} disabled={!value || setValue.isPending}>
-          保存月末市值
+        <button className="primary" onClick={save} disabled={!principal && !value}>
+          保存
         </button>
         {message && <div className="muted mt">{message}</div>}
-      </div>
-
-      <div className="section-title">月末市值记录</div>
-      <div className="card">
-        {history.data?.length ? (
-          history.data.map((row) => (
-            <div className="tx" key={row.month}>
-              <div>
-                <div>{row.month}</div>
-                <div className="meta">{fmtDateTime(row.updatedAt)}</div>
-              </div>
-              <b>{fmtMoney(row.value)}</b>
-            </div>
-          ))
-        ) : (
-          <div className="muted">还没有月末市值记录</div>
-        )}
       </div>
     </>
   );

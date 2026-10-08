@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  useFundPeriodPositions,
+  useCardViews,
   useIncomeCompare,
   useReconciliation,
   useSavingsSummaryAsOf,
@@ -32,10 +32,11 @@ export function SummaryPage() {
   const incomeCmp = useIncomeCompare(prefix);
   const recon = useReconciliation(refMonth);
   const savingsCmp = useSavingsSummaryAsOf(refMonth);
-  const fundPeriods = useFundPeriodPositions(prefix);
+  const views = useCardViews();
 
   const spendView = spend.data;
   const savings = savingsCmp.data ?? [];
+  const fund = (views.data ?? []).filter((view) => view.type === 'FUND');
   const inc = incomeCmp.data;
   const r = recon.data;
 
@@ -266,53 +267,40 @@ export function SummaryPage() {
             {!r.savingsFilled && (
               <div className="warn mt">部分储蓄卡未填该期真实额，总资产/差额暂不完整。</div>
             )}
-            {!r.fundsFilled && (
-              <div className="warn mt">部分基金在该期之前没有月末市值，总资产/差额暂不完整。</div>
-            )}
           </>
         ) : (
           <div className="muted">暂无数据</div>
         )}
       </div>
 
-      {/* 基金：使用筛选月份的月末快照与累计本金。 */}
+      {/* 基金使用当前最终值，不受时间筛选影响。 */}
       <div className="card">
-        <div className="detail-sub">基金 · 月末仓位（{mode === 'month' ? monthVal : yearVal}）</div>
-        {fundPeriods.data?.length ? (
-          fundPeriods.data.map((period) => (
-            <div key={period.month}>
-              {mode === 'year' && <div className="brk-title">{period.month}</div>}
-              {period.positions.map((position) => (
-                <div
-                  className="sum-row"
-                  key={`${period.month}-${position.fundCardId}`}
-                  onClick={() => navigate(`/card/${position.fundCardId}?month=${period.month}`)}
-                  style={{ cursor: 'pointer' }}
-                >
-                  <span>
-                    {position.fundName} ›
-                    <span className="meta">
-                      {' '}
-                      市值{position.value === null ? '未填' : fmtMoney(position.value)} · 本金
-                      {fmtMoney(position.principal)}
-                    </span>
-                  </span>
-                  {position.profit === null ? (
-                    <span className="muted">—</span>
-                  ) : (
-                    <b className={Number(position.profit) >= 0 ? 'pos' : 'neg'}>
-                      {fmtSigned(position.profit)}
-                      {position.profitPct !== null
-                        ? `(${position.profitPct > 0 ? '+' : ''}${position.profitPct}%)`
-                        : ''}
-                    </b>
-                  )}
-                </div>
-              ))}
+        <div className="detail-sub">基金 · 营收（当前值，不分时段）</div>
+        {fund.length ? (
+          fund.map((view) => (
+            <div
+              className="sum-row"
+              key={view.cardId}
+              onClick={() => navigate(`/card/${view.cardId}`)}
+              style={{ cursor: 'pointer' }}
+            >
+              <span>
+                {view.cardName} ›
+                <span className="meta">
+                  {' '}
+                  市值{fmtMoney(view.balance)} · 本金{fmtMoney(view.principal)}
+                </span>
+              </span>
+              <b className={Number(view.profit) >= 0 ? 'pos' : 'neg'}>
+                {fmtSigned(view.profit)}
+                {view.profitPct !== null
+                  ? `(${view.profitPct > 0 ? '+' : ''}${view.profitPct}%)`
+                  : ''}
+              </b>
             </div>
           ))
         ) : (
-          <div className="muted">该期间没有基金月末记录</div>
+          <div className="muted">没有基金</div>
         )}
       </div>
     </div>

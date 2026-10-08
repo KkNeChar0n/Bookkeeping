@@ -2,7 +2,6 @@ import { db } from '../db/db';
 import { budgetPlanService } from './budgetPlan.service';
 import { savingsActualService } from './savingsActual.service';
 import { fromCents } from '../domain/money';
-import { fundService } from './fund.service';
 
 export interface SavingsSummaryRow {
   cardId: string;
@@ -28,21 +27,14 @@ export const savingsSummaryService = {
     for (const c of savings) {
       const latest = await savingsActualService.latest(c.id);
       const month = latest?.month ?? thisMonth();
-      let expectedC = await budgetPlanService.expectedBalance(c.id, month);
-      let actual = latest?.amount ?? null;
-      if (c.savingsPurpose === 'FUND_POOL') {
-        expectedC -= await fundService.contributedFromPool(c.id, month);
-        if (latest)
-          actual =
-            latest.amount - (await fundService.contributedFromPool(c.id, month, latest.month));
-      }
+      const expectedC = await budgetPlanService.expectedBalance(c.id, month);
       rows.push({
         cardId: c.id,
         cardName: c.name,
         month,
-        actual: actual === null ? null : fromCents(actual),
+        actual: latest ? fromCents(latest.amount) : null,
         expected: fromCents(expectedC),
-        diff: actual === null ? null : fromCents(actual - expectedC),
+        diff: latest ? fromCents(latest.amount - expectedC) : null,
       });
     }
     return rows;
@@ -57,20 +49,14 @@ export const savingsSummaryService = {
     const rows: SavingsSummaryRow[] = [];
     for (const c of savings) {
       const bal = await savingsActualService.balanceAsOf(c.id, refMonth);
-      let expectedC = await budgetPlanService.expectedBalance(c.id, refMonth);
-      let actual = bal?.amount ?? null;
-      if (c.savingsPurpose === 'FUND_POOL') {
-        expectedC -= await fundService.contributedFromPool(c.id, refMonth);
-        if (bal)
-          actual = bal.amount - (await fundService.contributedFromPool(c.id, refMonth, bal.month));
-      }
+      const expectedC = await budgetPlanService.expectedBalance(c.id, refMonth);
       rows.push({
         cardId: c.id,
         cardName: c.name,
         month: bal?.month ?? refMonth,
-        actual: actual === null ? null : fromCents(actual),
+        actual: bal ? fromCents(bal.amount) : null,
         expected: fromCents(expectedC),
-        diff: actual === null ? null : fromCents(actual - expectedC),
+        diff: bal ? fromCents(bal.amount - expectedC) : null,
       });
     }
     return rows;

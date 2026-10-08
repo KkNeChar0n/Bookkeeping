@@ -90,8 +90,8 @@ test('legacy backup becomes one virtual account and avoids v8 quota double count
     ['2026-08', 200_000],
   ]);
   assert.deepEqual(result.initialBalanceLogs, []);
-  assert.deepEqual(result.fundContributions, []);
-  assert.deepEqual(result.fundSnapshots, []);
+  assert.equal('fundContributions' in result, false);
+  assert.equal('fundSnapshots' in result, false);
   const again = normalizeBackupData(result);
   assert.deepEqual(again.consumptionBudgets, result.consumptionBudgets);
 });
@@ -110,6 +110,7 @@ test('backup normalization drops orphan history and broken transfer groups', () 
         isDefault: 0,
         sortOrder: 0,
         createdAt: 1,
+        savingsPurpose: 'FUND_POOL',
       },
       {
         id: 'valid-fund',
@@ -318,6 +319,15 @@ test('backup normalization drops orphan history and broken transfer groups', () 
         amount: 900,
         createdAt: 1,
       },
+      {
+        id: 'valid-funding-later',
+        batchId: 'valid-batch-later',
+        sourceCardId: 'valid-savings',
+        fundCardId: 'valid-fund',
+        month: '2026-09',
+        amount: 50,
+        createdAt: 2,
+      },
     ],
     fundSnapshots: [
       {
@@ -333,6 +343,13 @@ test('backup normalization drops orphan history and broken transfer groups', () 
         month: '2026-08',
         value: 900,
         updatedAt: 1,
+      },
+      {
+        id: 'valid-fund-snapshot-later',
+        fundCardId: 'valid-fund',
+        month: '2026-09',
+        value: 250,
+        updatedAt: 2,
       },
     ],
   });
@@ -366,12 +383,11 @@ test('backup normalization drops orphan history and broken transfer groups', () 
     result.consumptionBudgets.map((row) => row.id),
     ['valid-consumption-budget'],
   );
-  assert.deepEqual(
-    result.fundContributions?.map((row) => row.id),
-    ['valid-funding'],
-  );
-  assert.deepEqual(
-    result.fundSnapshots?.map((row) => row.id),
-    ['valid-fund-snapshot'],
-  );
+  const fund = result.cards.find((card) => card.id === 'valid-fund');
+  const savings = result.cards.find((card) => card.id === 'valid-savings');
+  assert.equal('savingsPurpose' in (savings ?? {}), false);
+  assert.equal(fund?.fundPrincipal, 150);
+  assert.equal(fund?.fundValue, 250);
+  assert.equal('fundContributions' in result, false);
+  assert.equal('fundSnapshots' in result, false);
 });

@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   useAddCategory,
-  useCards,
   useCategoryList,
   useRemoveCategory,
   useRenameCategory,
@@ -13,7 +12,6 @@ import { CreateCardForm } from '../components/CreateCardForm';
 export function SettingsPage() {
   const navigate = useNavigate();
   const list = useCategoryList();
-  const cards = useCards();
   const rows = list.data ?? [];
   const income = rows.filter((r) => r.kind === 'income');
   const expense = rows.filter((r) => r.kind === 'expense');
@@ -32,18 +30,6 @@ export function SettingsPage() {
 
       <div className="section-title">新建储蓄卡</div>
       <CreateCardForm type="SAVINGS" placeholder="如：工资卡" />
-
-      <div className="section-title">基金资金卡</div>
-      {(cards.data ?? []).some((card) => card.savingsPurpose === 'FUND_POOL') ? (
-        <div className="card muted">已创建基金资金卡；系统只允许一张。</div>
-      ) : (
-        <>
-          <div className="muted" style={{ marginBottom: 8 }}>
-            月初记录可投资金额，月末从这张卡向多只基金注资。
-          </div>
-          <CreateCardForm type="SAVINGS" savingsPurpose="FUND_POOL" placeholder="如：基金资金池" />
-        </>
-      )}
 
       <KindSection kind="income" title="收入类型" rows={income} />
       <KindSection kind="expense" title="支出类型" rows={expense} />

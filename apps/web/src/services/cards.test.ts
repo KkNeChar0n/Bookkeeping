@@ -47,7 +47,6 @@ test('deleting a card cascades records and removes their statistics', async () =
       isDefault: 0,
       sortOrder: 1,
       createdAt: 1,
-      savingsPurpose: 'FUND_POOL',
     },
     {
       id: 'peer',
@@ -184,16 +183,6 @@ test('deleting a card cascades records and removes their statistics', async () =
     amount: 400,
     updatedAt: 1,
   });
-  await db.fundContributions.add({
-    id: 'contribution',
-    batchId: 'fund-group',
-    sourceCardId: 'remove-me',
-    fundCardId: 'fund',
-    month: '2026-08',
-    amount: 500,
-    createdAt: 1,
-  });
-
   assert.deepEqual(await incomeCompareService.compute('2026-08'), {
     prefix: '2026-08',
     expected: '2.00',
@@ -210,13 +199,41 @@ test('deleting a card cascades records and removes their statistics', async () =
   );
   assert.equal(await db.savingsEntries.where('cardId').equals('remove-me').count(), 0);
   assert.equal(await db.consumptionBudgets.where('savingsCardId').equals('remove-me').count(), 0);
-  assert.equal(await db.fundContributions.where('sourceCardId').equals('remove-me').count(), 0);
   assert.deepEqual(await incomeCompareService.compute('2026-08'), {
     prefix: '2026-08',
     expected: '0.00',
     actual: '0.00',
     diff: '0.00',
   });
+
+  db.close();
+  await db.delete();
+});
+
+test('fund principal and value can be edited directly', async () => {
+  await db.open();
+  await db.cards.add({
+    id: 'fund-direct-edit',
+    name: '基金',
+    type: 'FUND',
+    initialBalance: 10_000,
+    fundPrincipal: 10_000,
+    fundValue: 10_000,
+    isDefault: 0,
+    sortOrder: 1,
+    createdAt: 1,
+  });
+
+  const result = await cardsService.setFund('fund-direct-edit', {
+    principal: '250.00',
+    value: '280.50',
+  });
+
+  assert.equal(result.fundPrincipal, '250.00');
+  assert.equal(result.fundValue, '280.50');
+  const stored = await db.cards.get('fund-direct-edit');
+  assert.equal(stored?.fundPrincipal, 25_000);
+  assert.equal(stored?.fundValue, 28_050);
 
   db.close();
   await db.delete();

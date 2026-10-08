@@ -5,7 +5,6 @@ import { buildOrphanCleanupPlan } from '../domain/orphanCleanup';
 
 // 卡类型：储蓄卡 / 消费卡 / 基金
 export type CardType = 'SAVINGS' | 'SPEND' | 'FUND';
-export type SavingsPurpose = 'FUND_POOL';
 
 // 本地存储实体：金额一律以“分”(整数)存储
 export interface CardRow {
@@ -16,7 +15,6 @@ export interface CardRow {
   isDefault: number; // 0/1（Dexie 索引友好）
   sortOrder: number;
   createdAt: number;
-  savingsPurpose?: SavingsPurpose; // 储蓄卡专用用途；FUND_POOL=基金资金卡
   // 基金专用：直接填的两个数（分）
   fundPrincipal?: number; // 累计投入本金
   fundValue?: number; // 当前市值
@@ -106,7 +104,7 @@ export interface InitialBalanceLogRow {
 }
 
 // 基金资金卡在某月向基金注资；同次提交共享 batchId，可整批撤销。
-export interface FundContributionRow {
+export interface LegacyFundContributionRow {
   id: string;
   batchId: string;
   sourceCardId: string;
@@ -117,7 +115,7 @@ export interface FundContributionRow {
 }
 
 // 基金月末市值快照；同一基金同一月份唯一。
-export interface FundSnapshotRow {
+export interface LegacyFundSnapshotRow {
   id: string;
   fundCardId: string;
   month: string; // YYYY-MM
@@ -163,8 +161,6 @@ export class BookkeepingDB extends Dexie {
   savingsEntries!: Table<SavingsEntryRow, string>;
   savingsLogs!: Table<SavingsLogRow, string>;
   initialBalanceLogs!: Table<InitialBalanceLogRow, string>;
-  fundContributions!: Table<FundContributionRow, string>;
-  fundSnapshots!: Table<FundSnapshotRow, string>;
   consumptionBudgets!: Table<ConsumptionBudgetRow, string>;
 
   constructor(name = 'bookkeeping') {
@@ -361,7 +357,7 @@ export class BookkeepingDB extends Dexie {
               month,
               value: fund.fundValue ?? fund.initialBalance,
               updatedAt: Date.now(),
-            }) satisfies FundSnapshotRow,
+            }) satisfies LegacyFundSnapshotRow,
         );
         if (snapshots.length) await tx.table('fundSnapshots').bulkAdd(snapshots);
       });
@@ -392,8 +388,8 @@ export class BookkeepingDB extends Dexie {
         tx.table('savingsLogs').toArray() as Promise<SavingsLogRow[]>,
         tx.table('initialBalanceLogs').toArray() as Promise<InitialBalanceLogRow[]>,
         tx.table('consumptionBudgets').toArray() as Promise<ConsumptionBudgetRow[]>,
-        tx.table('fundContributions').toArray() as Promise<FundContributionRow[]>,
-        tx.table('fundSnapshots').toArray() as Promise<FundSnapshotRow[]>,
+        tx.table('fundContributions').toArray() as Promise<LegacyFundContributionRow[]>,
+        tx.table('fundSnapshots').toArray() as Promise<LegacyFundSnapshotRow[]>,
       ]);
       const plan = buildOrphanCleanupPlan({
         cards,
@@ -423,6 +419,60 @@ export class BookkeepingDB extends Dexie {
         remove('fundContributions', plan.fundContributionIds),
         remove('fundSnapshots', plan.fundSnapshotIds),
       ]);
+    });
+
+    // v14：回退基金月度会计前，先把增量本金和最新市值固化回基金卡。
+    this.version(14)
+      .stores({
+        cards: 'id, sortOrder, isDefault, type, savingsPurpose',
+        fundContributions:
+          'id, batchId, sourceCardId, fundCardId, month, [sourceCardId+month], [fundCardId+month]',
+        fundSnapshots: 'id, &[fundCardId+month], fundCardId, month',
+      })
+      .upgrade(async (tx) => {
+        type LegacyCardRow = CardRow & { savingsPurpose?: 'FUND_POOL' };
+        const [contributions, snapshots] = await Promise.all([
+          tx.table('fundContributions').toArray() as Promise<LegacyFundContributionRow[]>,
+          tx.table('fundSnapshots').toArray() as Promise<LegacyFundSnapshotRow[]>,
+        ]);
+        const contributionsByFund = new Map<string, number>();
+        for (const row of contributions) {
+          contributionsByFund.set(
+            row.fundCardId,
+            (contributionsByFund.get(row.fundCardId) ?? 0) + row.amount,
+          );
+        }
+        const latestSnapshotByFund = new Map<string, LegacyFundSnapshotRow>();
+        for (const row of snapshots) {
+          const current = latestSnapshotByFund.get(row.fundCardId);
+          if (
+            !current ||
+            row.month > current.month ||
+            (row.month === current.month && row.updatedAt > current.updatedAt)
+          ) {
+            latestSnapshotByFund.set(row.fundCardId, row);
+          }
+        }
+        await tx
+          .table('cards')
+          .toCollection()
+          .modify((card: LegacyCardRow) => {
+            if (card.type === 'FUND') {
+              card.fundPrincipal =
+                (card.fundPrincipal ?? card.initialBalance) +
+                (contributionsByFund.get(card.id) ?? 0);
+              const latest = latestSnapshotByFund.get(card.id);
+              if (latest) card.fundValue = latest.value;
+            }
+            delete card.savingsPurpose;
+          });
+      });
+
+    // v15：月度基金数据已折叠为卡片最终值，移除专用索引和两张旧表。
+    this.version(15).stores({
+      cards: 'id, sortOrder, isDefault, type',
+      fundContributions: null,
+      fundSnapshots: null,
     });
 
     // Fresh installs skip upgrade callbacks, so seed the same internal account on populate.
