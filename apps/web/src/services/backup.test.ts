@@ -1,8 +1,10 @@
+import 'fake-indexeddb/auto';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { BackupData } from './backup.service';
-import { normalizeBackupData } from './backup.service';
+import { backupService, normalizeBackupData } from './backup.service';
 import { VIRTUAL_CONSUMPTION_CARD_ID } from '../domain/consumption';
+import { db } from '../db/db';
 
 const source: BackupData = {
   app: 'bookkeeping',
@@ -90,9 +92,9 @@ test('legacy backup becomes one virtual account and avoids v8 quota double count
     ['2026-08', 200_000],
   ]);
   assert.deepEqual(result.initialBalanceLogs, []);
-  assert.deepEqual(result.assetTransfers, []);
+  assert.equal('assetTransfers' in result, false);
   assert.deepEqual(result.fundPrincipalLogs, []);
-  assert.equal(result.version, 11);
+  assert.equal(result.version, 12);
   assert.deepEqual(result.fundMonthSnapshots, []);
   assert.equal('fundContributions' in result, false);
   assert.equal('fundSnapshots' in result, false);
@@ -100,7 +102,7 @@ test('legacy backup becomes one virtual account and avoids v8 quota double count
   assert.deepEqual(again.consumptionBudgets, result.consumptionBudgets);
 });
 
-test('v8 backup normalization preserves valid asset transfer and principal audit rows', () => {
+test('v8 backup normalization drops asset transfers and preserves principal audit rows', () => {
   const result = normalizeBackupData({
     app: 'bookkeeping',
     version: 8,
@@ -172,11 +174,7 @@ test('v8 backup normalization preserves valid asset transfer and principal audit
     ],
   });
 
-  assert.deepEqual(
-    result.assetTransfers.map((row) => row.id),
-    ['valid-transfer'],
-  );
-  assert.equal(result.assetTransfers[0].savingsApplied, 0);
+  assert.equal('assetTransfers' in result, false);
   assert.deepEqual(
     result.fundPrincipalLogs.map((row) => row.id),
     ['valid-principal-log'],
@@ -243,10 +241,10 @@ test('v9 backup normalization restores source snapshot deducted by asset transfe
     ],
   });
 
-  assert.equal(result.version, 11);
+  assert.equal(result.version, 12);
   assert.equal(result.savingsActuals?.find((row) => row.cardId === 'postal')?.amount, 10_212_585);
   assert.equal(result.savingsActuals?.find((row) => row.cardId === 'fund-card')?.amount, 324_500);
-  assert.equal(result.assetTransfers[0].savingsApplied, 0);
+  assert.equal('assetTransfers' in result, false);
 });
 
 test('legacy backup creates an exported-month fund snapshot from its current values', () => {
@@ -357,6 +355,28 @@ test('v11 backup preserves monthly snapshots, keeps the latest duplicate, and dr
       ['october', '2026-10', 20_000, 23_000],
     ],
   );
+});
+
+test('v12 export omits the retired asset transfer ledger', async () => {
+  db.close();
+  await db.delete();
+  await db.open();
+  await db.cards.add({
+    id: 'export-savings',
+    name: '储蓄',
+    type: 'SAVINGS',
+    initialBalance: 10_000,
+    isDefault: 1,
+    sortOrder: 1,
+    createdAt: 1,
+  });
+
+  const result = await backupService.exportAll();
+  assert.equal(result.version, 12);
+  assert.equal('assetTransfers' in result, false);
+
+  db.close();
+  await db.delete();
 });
 
 test('backup normalization drops orphan history and broken transfer groups', () => {

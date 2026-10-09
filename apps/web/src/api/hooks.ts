@@ -17,7 +17,6 @@ import { reconciliationService } from '../services/reconciliation.service';
 import { incomeCompareService } from '../services/incomeCompare.service';
 import { categoriesService } from '../services/categories';
 import { initialBalanceLogService } from '../services/initialBalanceLog.service';
-import { assetTransferService } from '../services/assetTransfer.service';
 import { fundPrincipalLogService } from '../services/fundPrincipalLog.service';
 import { fundMonthSnapshotService } from '../services/fundMonthSnapshot.service';
 
@@ -38,7 +37,6 @@ function useInvalidateLedger() {
     qc.invalidateQueries({ queryKey: ['reconciliation'] });
     qc.invalidateQueries({ queryKey: ['incomeCompare'] });
     qc.invalidateQueries({ queryKey: ['initialBalanceLogs'] });
-    qc.invalidateQueries({ queryKey: ['assetTransfers'] });
     qc.invalidateQueries({ queryKey: ['fundPrincipalLogs'] });
     qc.invalidateQueries({ queryKey: ['fundMonthSnapshots'] });
   };
@@ -407,39 +405,7 @@ export function useSetFund() {
   });
 }
 
-// ---- 通用资产划转 / 基金本金校准 ----
-export function useAssetTransfers(filter: {
-  cardId?: string;
-  month?: string;
-  fundCardId?: string;
-}) {
-  return useQuery({
-    queryKey: ['assetTransfers', filter],
-    queryFn: () => assetTransferService.list(filter),
-  });
-}
-export function useCreateAssetTransfer() {
-  const inv = useInvalidateLedger();
-  return useMutation({
-    mutationFn: (body: {
-      sourceCardId: string;
-      targetCardId: string;
-      targetKind: 'SAVINGS' | 'FUND_PRINCIPAL';
-      amount: string;
-      date?: string;
-      note?: string;
-      principalAlreadyIncluded?: boolean;
-    }) => assetTransferService.create(body),
-    onSuccess: inv,
-  });
-}
-export function useRemoveAssetTransfer() {
-  const inv = useInvalidateLedger();
-  return useMutation({
-    mutationFn: (id: string) => assetTransferService.remove(id),
-    onSuccess: inv,
-  });
-}
+// ---- 基金本金审计与月度快照 ----
 export function useFundPrincipalLogs(fundCardId: string) {
   return useQuery({
     queryKey: ['fundPrincipalLogs', fundCardId],

@@ -2,16 +2,13 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   useAddSavingsLog,
-  useAssetTransfers,
   useCards,
   useClearSavingsMonth,
   useConsumptionBudget,
   useConsumptionFunding,
-  useCreateAssetTransfer,
   useSavingsEntries,
   useSavingsList,
   useSavingsLogs,
-  useRemoveAssetTransfer,
   useSetConsumptionBudget,
   useSetSavingsAmount,
   useSetSavingsEntry,
@@ -40,9 +37,6 @@ export function SavingsCardPage() {
   const logs = useSavingsLogs(id, month);
   const budget = useConsumptionBudget(id, month);
   const funding = useConsumptionFunding(month);
-  const assetTransfers = useAssetTransfers({ cardId: id, month });
-  const createAssetTransfer = useCreateAssetTransfer();
-  const removeAssetTransfer = useRemoveAssetTransfer();
   const incomeTotal = (entries.data ?? [])
     .filter((entry) => entry.kind === 'INCOME')
     .reduce((sum, entry) => sum + Number(entry.amount), 0);
@@ -55,12 +49,6 @@ export function SavingsCardPage() {
   const [excess, setExcess] = useState('');
   const [budgetInput, setBudgetInput] = useState('');
   const [saving, setSaving] = useState(false);
-  const [transferTargetId, setTransferTargetId] = useState('');
-  const [transferAmount, setTransferAmount] = useState('');
-  const [transferDate, setTransferDate] = useState(`${currentMonthStr()}-01`);
-  const [transferNote, setTransferNote] = useState('');
-  const [principalAlreadyIncluded, setPrincipalAlreadyIncluded] = useState(false);
-  const [transferError, setTransferError] = useState('');
 
   useEffect(() => {
     setAmount(existing ? existing.amount : '');
@@ -71,10 +59,6 @@ export function SavingsCardPage() {
   useEffect(() => {
     setBudgetInput(budget.data ?? '');
   }, [month, budget.data]);
-
-  useEffect(() => {
-    setTransferDate(`${month}-01`);
-  }, [month]);
 
   const savedContribution = Number(budget.data || 0);
   const savedGlobalBudget = Number(funding.data?.budget ?? 0);
@@ -108,35 +92,6 @@ export function SavingsCardPage() {
   };
 
   const logRows = logs.data ?? [];
-  const transferTargets = (cards.data ?? []).filter(
-    (item) => item.id !== id && (item.type === 'SAVINGS' || item.type === 'FUND'),
-  );
-  const transferTarget = transferTargets.find((item) => item.id === transferTargetId);
-
-  const submitTransfer = async () => {
-    setTransferError('');
-    if (!transferTarget) {
-      setTransferError('请选择去向');
-      return;
-    }
-    try {
-      await createAssetTransfer.mutateAsync({
-        sourceCardId: id,
-        targetCardId: transferTarget.id,
-        targetKind: transferTarget.type === 'FUND' ? 'FUND_PRINCIPAL' : 'SAVINGS',
-        amount: transferAmount,
-        date: transferDate,
-        note: transferNote,
-        principalAlreadyIncluded: transferTarget.type === 'FUND' ? principalAlreadyIncluded : false,
-      });
-      setTransferAmount('');
-      setTransferNote('');
-      setPrincipalAlreadyIncluded(false);
-    } catch (error) {
-      setTransferError(error instanceof Error ? error.message : '资产划转失败');
-    }
-  };
-
   return (
     <div>
       <div className="detail-header">
@@ -229,112 +184,6 @@ export function SavingsCardPage() {
         >
           清除本月数据
         </button>
-      </div>
-
-      <div className="section-title">{month} · 资产划转</div>
-      <div className="card">
-        <div className="muted" style={{ fontSize: 12, marginBottom: 12 }}>
-          划转只记录资金路径，不会修改手工填写的真实储蓄金额，也不参与统计差额；转入基金时会增加基金本金，撤销时减回。
-        </div>
-        <div className="field">
-          <label>去向</label>
-          <select
-            value={transferTargetId}
-            onChange={(event) => {
-              setTransferTargetId(event.target.value);
-              setPrincipalAlreadyIncluded(false);
-            }}
-          >
-            <option value="">请选择</option>
-            {transferTargets.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.type === 'FUND' ? '基金本金' : '储蓄卡'} · {item.name}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="field">
-          <label>金额</label>
-          <input
-            type="number"
-            step="0.01"
-            min="0"
-            value={transferAmount}
-            onChange={(event) => setTransferAmount(event.target.value)}
-            placeholder="0.00"
-          />
-        </div>
-        <div className="field">
-          <label>日期</label>
-          <input
-            type="date"
-            value={transferDate}
-            onChange={(event) => setTransferDate(event.target.value)}
-          />
-        </div>
-        <div className="field">
-          <label>备注（可选）</label>
-          <input value={transferNote} onChange={(event) => setTransferNote(event.target.value)} />
-        </div>
-        {transferTarget?.type === 'FUND' && (
-          <label className="check-row">
-            <input
-              type="checkbox"
-              checked={principalAlreadyIncluded}
-              onChange={(event) => setPrincipalAlreadyIncluded(event.target.checked)}
-            />
-            <span>历史补录：这笔钱已经包含在基金本金中（勾选后只补记录，不再增加本金）</span>
-          </label>
-        )}
-        <button
-          className="primary"
-          onClick={submitTransfer}
-          disabled={createAssetTransfer.isPending || !transferTargetId || !transferAmount}
-        >
-          记录划转
-        </button>
-        {transferError && <div className="warn mt">{transferError}</div>}
-      </div>
-
-      <div className="card">
-        {(assetTransfers.data ?? []).length ? (
-          (assetTransfers.data ?? []).map((row) => {
-            const outgoing = row.sourceCardId === id;
-            return (
-              <div className="tx" key={row.id}>
-                <div>
-                  <div>
-                    {outgoing ? `转到 ${row.targetCardName}` : `来自 ${row.sourceCardName}`}
-                    {row.targetKind === 'FUND_PRINCIPAL' && !row.principalApplied
-                      ? ' · 本金已包含'
-                      : ''}
-                  </div>
-                  <div className="meta">
-                    {row.date}
-                    {row.note ? ` · ${row.note}` : ''}
-                  </div>
-                </div>
-                <div style={{ textAlign: 'right' }}>
-                  <div className={`amt ${outgoing ? 'out' : 'in'}`}>
-                    {outgoing ? '−' : '+'}
-                    {fmtMoney(row.amount)}
-                  </div>
-                  <button
-                    className="mini danger"
-                    onClick={async () => {
-                      if (!window.confirm('撤销这笔资产划转？')) return;
-                      await removeAssetTransfer.mutateAsync(row.id);
-                    }}
-                  >
-                    撤销
-                  </button>
-                </div>
-              </div>
-            );
-          })
-        ) : (
-          <div className="muted">本月还没有资产划转</div>
-        )}
       </div>
 
       <div className="section-title">{month} · 修改流水</div>

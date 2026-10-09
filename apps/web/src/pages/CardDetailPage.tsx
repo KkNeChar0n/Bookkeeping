@@ -1,13 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
-  useAssetTransfers,
   useCardViews,
   useCards,
   useDeleteCard,
   useFundPrincipalLogs,
   useFundMonthSnapshots,
-  useRemoveAssetTransfer,
   useSetFund,
   useUpdateCard,
 } from '../api/hooks';
@@ -93,10 +91,8 @@ function FundDetail({
 }) {
   const views = useCardViews();
   const setFund = useSetFund();
-  const transfers = useAssetTransfers({ fundCardId: cardId });
   const principalLogs = useFundPrincipalLogs(cardId);
   const monthSnapshots = useFundMonthSnapshots(cardId);
-  const removeTransfer = useRemoveAssetTransfer();
   const [message, setMessage] = useState('');
   const view = views.data?.find((row) => row.cardId === cardId);
   const [principal, setPrincipal] = useState(initialPrincipal);
@@ -176,7 +172,7 @@ function FundDetail({
       <div className="section-title">本金校准</div>
       <div className="card">
         <div className="muted" style={{ fontSize: 12, marginBottom: 12 }}>
-          本金只用于计算基金盈亏，不再抬高预算，也不需要为了统计补录注资来源。每次修改都会留痕并更新所选月份快照。
+          发生申购或赎回时在这里校准本金；本金只用于计算基金盈亏，不抬高预算。每次修改都会留痕并更新所选月份快照。
         </div>
         <div className="field">
           <label>累计投入 · 本金</label>
@@ -209,43 +205,6 @@ function FundDetail({
           ))
         ) : (
           <div className="muted">还没有月度记录</div>
-        )}
-      </div>
-
-      <div className="section-title">资产划转记录</div>
-      <div className="card">
-        <div className="muted" style={{ fontSize: 12, marginBottom: 12 }}>
-          这些记录只用于说明资金路径，不参与预算与实际的统计差额。
-        </div>
-        {(transfers.data ?? []).length ? (
-          (transfers.data ?? []).map((row) => (
-            <div className="tx" key={row.id}>
-              <div>
-                <div>
-                  {row.sourceCardName} → 本基金
-                  {!row.principalApplied ? ' · 本金已包含' : ''}
-                </div>
-                <div className="meta">
-                  {row.date}
-                  {row.note ? ` · ${row.note}` : ''}
-                </div>
-              </div>
-              <div style={{ textAlign: 'right' }}>
-                <div className="amt in">+{fmtMoney(row.amount)}</div>
-                <button
-                  className="mini danger"
-                  onClick={async () => {
-                    if (!window.confirm('撤销这笔资产划转？')) return;
-                    await removeTransfer.mutateAsync(row.id);
-                  }}
-                >
-                  撤销
-                </button>
-              </div>
-            </div>
-          ))
-        ) : (
-          <div className="muted">还没有转入记录</div>
         )}
       </div>
 

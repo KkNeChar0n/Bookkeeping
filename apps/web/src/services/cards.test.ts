@@ -236,10 +236,25 @@ test('fund principal calibration is audited while value stays directly editable'
   assert.equal(stored?.fundPrincipal, 25_000);
   assert.equal(stored?.fundValue, 28_050);
   assert.deepEqual(
-    (await db.fundPrincipalLogs.where('fundCardId').equals('fund-direct-edit').toArray()).map(
-      (row) => [row.previousAmount, row.amount],
-    ),
+    (await db.fundPrincipalLogs.where('fundCardId').equals('fund-direct-edit').toArray())
+      .map((row) => [row.previousAmount, row.amount])
+      .sort((a, b) => a[0] - b[0]),
     [[10_000, 25_000]],
+  );
+
+  const reduced = await cardsService.setFund('fund-direct-edit', {
+    principal: '50.00',
+    month: '2026-10',
+  });
+  assert.equal(reduced.fundPrincipal, '50.00');
+  assert.deepEqual(
+    (await db.fundPrincipalLogs.where('fundCardId').equals('fund-direct-edit').toArray())
+      .map((row) => [row.previousAmount, row.amount])
+      .sort((a, b) => a[0] - b[0]),
+    [
+      [10_000, 25_000],
+      [25_000, 5_000],
+    ],
   );
 
   db.close();

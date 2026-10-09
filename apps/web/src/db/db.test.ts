@@ -225,7 +225,7 @@ test('v15 migration keeps legacy fund final values and removes monthly fund tabl
   await Dexie.delete(name);
 });
 
-test('v18 migration restores v17 source deductions and preserves target balance', async () => {
+test('v20 migration restores v17 source deductions, preserves balances, and removes the ledger', async () => {
   const name = `bookkeeping-asset-transfer-migration-${crypto.randomUUID()}`;
   const legacy = new Dexie(name);
   legacy.version(17).stores({
@@ -287,8 +287,10 @@ test('v18 migration restores v17 source deductions and preserves target balance'
 
   const upgraded = new BookkeepingDB(name);
   await upgraded.open();
-  const row = await upgraded.assetTransfers.get('old-transfer');
-  assert.equal(row?.savingsApplied, 0);
+  assert.equal(
+    upgraded.tables.some((table) => table.name === 'assetTransfers'),
+    false,
+  );
   assert.equal(
     (await upgraded.savingsActuals.where('[cardId+month]').equals(['source', '2026-10']).first())
       ?.amount,
@@ -303,7 +305,7 @@ test('v18 migration restores v17 source deductions and preserves target balance'
   await Dexie.delete(name);
 });
 
-test('direct v16 to v18 migration never applies asset transfers to savings snapshots', async () => {
+test('direct v16 to v20 migration leaves savings snapshots unchanged and removes the ledger', async () => {
   const name = `bookkeeping-asset-transfer-direct-migration-${crypto.randomUUID()}`;
   const legacy = new Dexie(name);
   legacy.version(16).stores({
@@ -364,9 +366,95 @@ test('direct v16 to v18 migration never applies asset transfers to savings snaps
 
   const upgraded = new BookkeepingDB(name);
   await upgraded.open();
-  assert.equal((await upgraded.assetTransfers.get('direct-transfer'))?.savingsApplied, 0);
+  assert.equal(
+    upgraded.tables.some((table) => table.name === 'assetTransfers'),
+    false,
+  );
   assert.equal((await upgraded.savingsActuals.get('direct-source-actual'))?.amount, 10_000);
   assert.equal((await upgraded.savingsActuals.get('direct-target-actual'))?.amount, 0);
+  upgraded.close();
+  await Dexie.delete(name);
+});
+
+test('v20 removes asset transfers without rolling back confirmed fund values or snapshots', async () => {
+  const name = `bookkeeping-transfer-retirement-${crypto.randomUUID()}`;
+  const legacy = new Dexie(name);
+  legacy.version(19).stores({
+    cards: 'id, sortOrder, isDefault, type',
+    savingsActuals: 'id, &[cardId+month], cardId',
+    assetTransfers:
+      'id, date, sourceCardId, targetCardId, targetKind, [sourceCardId+date], [targetCardId+date]',
+    fundMonthSnapshots: 'id, &[fundCardId+month], fundCardId, month',
+  });
+  await legacy.open();
+  await legacy.table('cards').bulkAdd([
+    {
+      id: 'retired-source',
+      name: '来源卡',
+      type: 'SAVINGS',
+      initialBalance: 10_000,
+      isDefault: 1,
+      sortOrder: 1,
+      createdAt: 1,
+    },
+    {
+      id: 'retired-fund',
+      name: '基金',
+      type: 'FUND',
+      initialBalance: 5_000,
+      fundPrincipal: 8_000,
+      fundValue: 8_500,
+      isDefault: 0,
+      sortOrder: 2,
+      createdAt: 2,
+    },
+  ]);
+  await legacy.table('savingsActuals').add({
+    id: 'retired-actual',
+    cardId: 'retired-source',
+    month: '2026-10',
+    amount: 7_000,
+    updatedAt: 1,
+  });
+  await legacy.table('fundMonthSnapshots').add({
+    id: 'retired-snapshot',
+    fundCardId: 'retired-fund',
+    month: '2026-10',
+    principal: 8_000,
+    value: 8_500,
+    updatedAt: 1,
+  });
+  await legacy.table('assetTransfers').add({
+    id: 'retired-transfer',
+    date: '2026-10-01',
+    sourceCardId: 'retired-source',
+    targetKind: 'FUND_PRINCIPAL',
+    targetCardId: 'retired-fund',
+    amount: 3_000,
+    savingsApplied: 0,
+    principalApplied: 1,
+    note: null,
+    createdAt: 1,
+  });
+  legacy.close();
+
+  const upgraded = new BookkeepingDB(name);
+  await upgraded.open();
+  assert.equal(
+    upgraded.tables.some((table) => table.name === 'assetTransfers'),
+    false,
+  );
+  assert.equal((await upgraded.savingsActuals.get('retired-actual'))?.amount, 7_000);
+  assert.equal((await upgraded.cards.get('retired-fund'))?.fundPrincipal, 8_000);
+  assert.equal((await upgraded.cards.get('retired-fund'))?.fundValue, 8_500);
+  assert.deepEqual(await upgraded.fundMonthSnapshots.get('retired-snapshot'), {
+    id: 'retired-snapshot',
+    fundCardId: 'retired-fund',
+    month: '2026-10',
+    principal: 8_000,
+    value: 8_500,
+    updatedAt: 1,
+  });
   upgraded.close();
   await Dexie.delete(name);
 });

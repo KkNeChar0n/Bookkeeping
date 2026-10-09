@@ -103,8 +103,8 @@ export interface InitialBalanceLogRow {
   createdAt: number; // 时间戳
 }
 
-// 资产划转：储蓄卡可以转到另一张储蓄卡或基金本金。
-export interface AssetTransferRow {
+// 旧版通用资产划转，仅供 v17/v18 数据库迁移读取。
+interface LegacyAssetTransferRow {
   id: string;
   date: string; // YYYY-MM-DD
   sourceCardId: string;
@@ -195,7 +195,6 @@ export class BookkeepingDB extends Dexie {
   savingsLogs!: Table<SavingsLogRow, string>;
   initialBalanceLogs!: Table<InitialBalanceLogRow, string>;
   consumptionBudgets!: Table<ConsumptionBudgetRow, string>;
-  assetTransfers!: Table<AssetTransferRow, string>;
   fundPrincipalLogs!: Table<FundPrincipalLogRow, string>;
   fundMonthSnapshots!: Table<FundMonthSnapshotRow, string>;
 
@@ -528,7 +527,7 @@ export class BookkeepingDB extends Dexie {
       })
       .upgrade(async (tx) => {
         const transferTable = tx.table('assetTransfers');
-        await transferTable.toCollection().modify((row: AssetTransferRow) => {
+        await transferTable.toCollection().modify((row: LegacyAssetTransferRow) => {
           if (row.savingsApplied === undefined) row.savingsApplied = 0;
         });
       });
@@ -543,7 +542,7 @@ export class BookkeepingDB extends Dexie {
       .upgrade(async (tx) => {
         const transferTable = tx.table('assetTransfers');
         const actualTable = tx.table('savingsActuals');
-        const applied = ((await transferTable.toArray()) as AssetTransferRow[]).filter(
+        const applied = ((await transferTable.toArray()) as LegacyAssetTransferRow[]).filter(
           (row) => row.savingsApplied === 1,
         );
         for (const row of applied) {
@@ -583,6 +582,12 @@ export class BookkeepingDB extends Dexie {
           }));
         if (snapshots.length) await tx.table('fundMonthSnapshots').bulkAdd(snapshots);
       });
+
+    // v20：真实月度余额和基金快照成为唯一事实来源，移除通用资产划转台账。
+    // 已确认的储蓄余额、基金本金/市值与月度快照全部保持不变。
+    this.version(20).stores({
+      assetTransfers: null,
+    });
 
     // Fresh installs skip upgrade callbacks, so seed the same internal account on populate.
     this.on('populate', () =>
