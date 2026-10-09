@@ -17,8 +17,7 @@ import { reconciliationService } from '../services/reconciliation.service';
 import { incomeCompareService } from '../services/incomeCompare.service';
 import { categoriesService } from '../services/categories';
 import { initialBalanceLogService } from '../services/initialBalanceLog.service';
-import { fundPrincipalLogService } from '../services/fundPrincipalLog.service';
-import { fundMonthSnapshotService } from '../services/fundMonthSnapshot.service';
+import { fundSavingsService } from '../services/fundSavings.service';
 
 // ---- 失效所有受余额影响的视图 ----
 function useInvalidateLedger() {
@@ -37,8 +36,7 @@ function useInvalidateLedger() {
     qc.invalidateQueries({ queryKey: ['reconciliation'] });
     qc.invalidateQueries({ queryKey: ['incomeCompare'] });
     qc.invalidateQueries({ queryKey: ['initialBalanceLogs'] });
-    qc.invalidateQueries({ queryKey: ['fundPrincipalLogs'] });
-    qc.invalidateQueries({ queryKey: ['fundMonthSnapshots'] });
+    qc.invalidateQueries({ queryKey: ['fundSavings'] });
   };
 }
 
@@ -388,42 +386,28 @@ export function useSpendPeriod(prefix: string) {
     queryFn: () => spendService.periodView(prefix),
   });
 }
-// ---- 基金：直填本金/市值 ----
-export function useSetFund() {
+// ---- 全局基金储蓄池：当前市值 / 预充金额 ----
+export function useSetFundSavings() {
   const inv = useInvalidateLedger();
   return useMutation({
-    mutationFn: ({
-      id,
-      ...body
-    }: {
-      id: string;
-      principal?: string;
-      value?: string;
-      month?: string;
-    }) => cardsService.setFund(id, body),
+    mutationFn: (body: { month?: string; marketValue: string; prepaid: string }) =>
+      fundSavingsService.set(body),
     onSuccess: inv,
   });
 }
 
-// ---- 基金本金审计与月度快照 ----
-export function useFundPrincipalLogs(fundCardId: string) {
+export function useFundSavings(refMonth: string) {
   return useQuery({
-    queryKey: ['fundPrincipalLogs', fundCardId],
-    queryFn: () => fundPrincipalLogService.list(fundCardId),
-    enabled: !!fundCardId,
+    queryKey: ['fundSavings', refMonth],
+    queryFn: () => fundSavingsService.get(refMonth),
+    enabled: !!refMonth,
   });
 }
-export function useFundMonthSnapshots(fundCardId: string) {
+
+export function useFundSavingsHistory() {
   return useQuery({
-    queryKey: ['fundMonthSnapshots', fundCardId],
-    queryFn: () => fundMonthSnapshotService.list(fundCardId),
-    enabled: !!fundCardId,
-  });
-}
-export function useFundMonthsAsOf(refMonth: string) {
-  return useQuery({
-    queryKey: ['fundMonthSnapshots', 'asOf', refMonth],
-    queryFn: () => fundMonthSnapshotService.listAsOfView(refMonth),
+    queryKey: ['fundSavings', 'history'],
+    queryFn: () => fundSavingsService.list(),
   });
 }
 

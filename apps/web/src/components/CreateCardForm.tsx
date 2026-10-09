@@ -1,13 +1,12 @@
 import { useState } from 'react';
 import { useCreateCard } from '../api/hooks';
-import type { CardType } from '../api/types';
 
 /** Only user-managed cards can be created; consumption is a system account. */
 export function CreateCardForm({
   type,
   placeholder,
 }: {
-  type: Exclude<CardType, 'SPEND'>;
+  type: 'SAVINGS';
   placeholder: string;
 }) {
   const create = useCreateCard();
@@ -37,7 +36,7 @@ export function CreateCardForm({
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder={placeholder} />
       </div>
       <div className="field">
-        <label>{type === 'FUND' ? '初始市值/本金' : '期初余额'}</label>
+        <label>期初余额</label>
         <input
           type="number"
           step="0.01"

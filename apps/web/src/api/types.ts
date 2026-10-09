@@ -13,8 +13,6 @@ export interface Card {
   initialBalance: string;
   isDefault: boolean;
   sortOrder: number;
-  fundPrincipal?: string;
-  fundValue?: string;
 }
 
 /** 卡片在某日期下的类型化摘要（主页展开 / 详情页用） */
@@ -32,10 +30,6 @@ export interface CardView {
   income: string;
   /** 消费卡：截至日期的累计支出 */
   spent: string;
-  /** 基金：本金 / 盈亏 / 盈亏率(%) */
-  principal: string;
-  profit: string;
-  profitPct: number | null;
 }
 
 export type TxType = 'IN' | 'OUT' | 'TRANSFER' | 'ADJUST';

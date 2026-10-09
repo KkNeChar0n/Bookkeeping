@@ -1,7 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import {
-  useFundMonthsAsOf,
   useIncomeCompare,
   useReconciliation,
   useSavingsSummaryAsOf,
@@ -11,7 +9,6 @@ import {
 import { currentMonthStr, fmtMoney, fmtSigned } from '../lib/format';
 
 export function SummaryPage() {
-  const navigate = useNavigate();
   const [mode, setMode] = useState<'month' | 'year'>('month');
   const [monthVal, setMonthVal] = useState(currentMonthStr());
   const [yearVal, setYearVal] = useState(currentMonthStr().slice(0, 4));
@@ -32,11 +29,9 @@ export function SummaryPage() {
   const incomeCmp = useIncomeCompare(prefix);
   const recon = useReconciliation(refMonth);
   const savingsCmp = useSavingsSummaryAsOf(refMonth);
-  const fundMonths = useFundMonthsAsOf(refMonth);
 
   const spendView = spend.data;
   const savings = savingsCmp.data ?? [];
-  const fund = fundMonths.data ?? [];
   const inc = incomeCmp.data;
   const r = recon.data;
 
@@ -229,12 +224,6 @@ export function SummaryPage() {
             </div>
             <div className="brk-title">差额拆解</div>
             <div className="brk">
-              <span>基金盈亏</span>
-              <span className={Number(r.fundProfit) >= 0 ? 'pos' : 'neg'}>
-                {fmtSigned(r.fundProfit)}
-              </span>
-            </div>
-            <div className="brk">
               <span>消费超支(累计)</span>
               <span
                 className={Number(r.overspend) > 0 ? 'neg' : Number(r.overspend) < 0 ? 'pos' : ''}
@@ -261,15 +250,12 @@ export function SummaryPage() {
               </span>
             </div>
             <div className="muted mt" style={{ fontSize: 12 }}>
-              预算总资产=储蓄预期+基金期初本金；实际总资产=储蓄实际+所选月份基金市值。消费超支=逐月
-              max(已花−当月消费预算, 0)；预充暂存=累计超额充值−累计超支−累计结转（累计结转{' '}
+              基金当前市值与基金预充金额等额进入预算和实际，不改变差额。消费超支=逐月
+              max(已花−当月消费预算, 0)；消费预充暂存=累计超额充值−累计超支−累计结转（累计结转{' '}
               {fmtMoney(r.carryover)}）。
             </div>
             {!r.savingsFilled && (
               <div className="warn mt">部分储蓄卡未填该期真实额，总资产/差额暂不完整。</div>
-            )}
-            {!r.fundsFilled && (
-              <div className="warn mt">部分基金在该期没有月度快照，暂按期初本金计算。</div>
             )}
           </>
         ) : (
@@ -278,34 +264,19 @@ export function SummaryPage() {
       </div>
 
       <div className="card">
-        <div className="detail-sub">基金 · 本金与市值（截至 {refMonth}）</div>
-        {fund.length ? (
-          fund.map((view) => (
-            <div
-              className="sum-row"
-              key={view.fundCardId}
-              onClick={() => navigate(`/card/${view.fundCardId}`)}
-              style={{ cursor: 'pointer' }}
-            >
-              <span>
-                {view.fundCardName} ›
-                <span className="meta">
-                  {' '}
-                  市值{fmtMoney(view.value)} · 本金{fmtMoney(view.principal)} · {view.month}
-                  {!view.filled ? '（未填，按期初）' : ''}
-                </span>
-              </span>
-              <b className={Number(view.profit) >= 0 ? 'pos' : 'neg'}>
-                {fmtSigned(view.profit)}
-                {view.profitPct !== null
-                  ? `(${view.profitPct > 0 ? '+' : ''}${view.profitPct}%)`
-                  : ''}
-              </b>
-            </div>
-          ))
-        ) : (
-          <div className="muted">没有基金</div>
-        )}
+        <div className="detail-sub">基金储蓄池（截至 {refMonth}）</div>
+        <div className="sum-row">
+          <span>当前市值</span>
+          <span>{fmtMoney(r?.fundMarketValue ?? '0')}</span>
+        </div>
+        <div className="sum-row">
+          <span>预充金额</span>
+          <span>{fmtMoney(r?.fundPrepaid ?? '0')}</span>
+        </div>
+        <div className="sum-row total">
+          <span>合计</span>
+          <b>{fmtMoney(r?.fundTotal ?? '0')}</b>
+        </div>
       </div>
     </div>
   );

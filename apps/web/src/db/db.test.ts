@@ -186,7 +186,7 @@ test('a failed v9 upgrade rolls the whole migration back', async () => {
   await Dexie.delete(name);
 });
 
-test('v15 migration keeps legacy fund final values and removes monthly fund tables', async () => {
+test('legacy fund values become one fund savings pool and old fund tables are removed', async () => {
   const name = `bookkeeping-fund-migration-${crypto.randomUUID()}`;
   const legacy = new Dexie(name);
   legacy.version(11).stores({
@@ -210,9 +210,14 @@ test('v15 migration keeps legacy fund final values and removes monthly fund tabl
 
   const upgraded = new BookkeepingDB(name);
   await upgraded.open();
-  const fund = await upgraded.cards.get('legacy-fund');
-  assert.equal(fund?.fundPrincipal, 12_000);
-  assert.equal(fund?.fundValue, 13_000);
+  assert.equal(await upgraded.cards.get('legacy-fund'), undefined);
+  assert.deepEqual(
+    (await upgraded.fundSavingsSnapshots.toArray()).map((row) => [
+      row.marketValue,
+      row.prepaid,
+    ]),
+    [[13_000, 0]],
+  );
   assert.equal(
     upgraded.tables.some((table) => table.name === 'fundContributions'),
     false,
@@ -376,7 +381,7 @@ test('direct v16 to v20 migration leaves savings snapshots unchanged and removes
   await Dexie.delete(name);
 });
 
-test('v20 removes asset transfers without rolling back confirmed fund values or snapshots', async () => {
+test('legacy transfer retirement preserves savings and aggregates confirmed fund value', async () => {
   const name = `bookkeeping-transfer-retirement-${crypto.randomUUID()}`;
   const legacy = new Dexie(name);
   legacy.version(19).stores({
@@ -445,21 +450,18 @@ test('v20 removes asset transfers without rolling back confirmed fund values or 
     false,
   );
   assert.equal((await upgraded.savingsActuals.get('retired-actual'))?.amount, 7_000);
-  assert.equal((await upgraded.cards.get('retired-fund'))?.fundPrincipal, 8_000);
-  assert.equal((await upgraded.cards.get('retired-fund'))?.fundValue, 8_500);
-  assert.deepEqual(await upgraded.fundMonthSnapshots.get('retired-snapshot'), {
-    id: 'retired-snapshot',
-    fundCardId: 'retired-fund',
-    month: '2026-10',
-    principal: 8_000,
-    value: 8_500,
-    updatedAt: 1,
-  });
+  assert.equal(await upgraded.cards.get('retired-fund'), undefined);
+  const fundSavings = await upgraded.fundSavingsSnapshots.get('2026-10');
+  assert.deepEqual(
+    fundSavings && [fundSavings.month, fundSavings.marketValue, fundSavings.prepaid],
+    ['2026-10', 8_500, 0],
+  );
+  assert.equal(upgraded.tables.some((table) => table.name === 'fundMonthSnapshots'), false);
   upgraded.close();
   await Dexie.delete(name);
 });
 
-test('v19 migration creates one current-month snapshot for every existing fund', async () => {
+test('legacy funds aggregate into one current-month savings pool', async () => {
   const name = `bookkeeping-fund-month-migration-${crypto.randomUUID()}`;
   const legacy = new Dexie(name);
   legacy.version(18).stores({
@@ -503,23 +505,13 @@ test('v19 migration creates one current-month snapshot for every existing fund',
   await upgraded.open();
   const now = new Date();
   const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-  const snapshots = (await upgraded.fundMonthSnapshots.toArray()).sort((a, b) =>
-    a.fundCardId.localeCompare(b.fundCardId),
-  );
-  assert.deepEqual(
-    snapshots.map((row) => [row.fundCardId, row.month, row.principal, row.value]),
-    [
-      ['fund-with-current-values', month, 25_000, 28_000],
-      ['fund-with-legacy-values', month, 5_000, 5_000],
-    ],
-  );
-  assert.equal(
-    await upgraded.fundMonthSnapshots
-      .where('[fundCardId+month]')
-      .equals(['fund-with-current-values', month])
-      .count(),
-    1,
-  );
+  assert.deepEqual(await upgraded.fundSavingsSnapshots.get(month), {
+    month,
+    marketValue: 33_000,
+    prepaid: 0,
+    updatedAt: (await upgraded.fundSavingsSnapshots.get(month))?.updatedAt,
+  });
+  assert.equal((await upgraded.cards.where('type').equals('FUND').count()), 0);
   upgraded.close();
   await Dexie.delete(name);
 });
@@ -822,11 +814,10 @@ test('v13 migration removes legacy orphan rows and preserves valid historical st
     ['valid-consumption-budget'],
   );
   const migratedSavings = await upgraded.cards.get('valid-savings');
-  const migratedFund = await upgraded.cards.get('valid-fund');
   assert.equal('savingsPurpose' in (migratedSavings ?? {}), false);
   assert.equal((await upgraded.savingsActuals.get('valid-actual'))?.amount, 100);
-  assert.equal(migratedFund?.fundPrincipal, 150);
-  assert.equal(migratedFund?.fundValue, 250);
+  assert.equal(await upgraded.cards.get('valid-fund'), undefined);
+  assert.equal((await upgraded.fundSavingsSnapshots.toArray()).at(-1)?.marketValue, 250);
   assert.equal(
     upgraded.tables.some((table) => table.name === 'fundContributions'),
     false,
@@ -851,7 +842,8 @@ test('v13 migration removes legacy orphan rows and preserves valid historical st
   await reopened.open();
   assert.equal(await reopened.transactions.count(), 2);
   assert.equal(await reopened.budgetDetails.count(), 1);
-  assert.equal((await reopened.cards.get('valid-fund'))?.fundPrincipal, 150);
+  assert.equal(await reopened.cards.get('valid-fund'), undefined);
+  assert.equal((await reopened.fundSavingsSnapshots.toArray()).at(-1)?.marketValue, 250);
   assert.equal(
     reopened.tables.some((table) => table.name === 'fundSnapshots'),
     false,

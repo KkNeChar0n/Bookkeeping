@@ -93,16 +93,17 @@ test('legacy backup becomes one virtual account and avoids v8 quota double count
   ]);
   assert.deepEqual(result.initialBalanceLogs, []);
   assert.equal('assetTransfers' in result, false);
-  assert.deepEqual(result.fundPrincipalLogs, []);
-  assert.equal(result.version, 12);
-  assert.deepEqual(result.fundMonthSnapshots, []);
+  assert.equal('fundPrincipalLogs' in result, false);
+  assert.equal(result.version, 13);
+  assert.deepEqual(result.fundSavingsSnapshots, []);
+  assert.equal('fundMonthSnapshots' in result, false);
   assert.equal('fundContributions' in result, false);
   assert.equal('fundSnapshots' in result, false);
   const again = normalizeBackupData(result);
   assert.deepEqual(again.consumptionBudgets, result.consumptionBudgets);
 });
 
-test('v8 backup normalization drops asset transfers and preserves principal audit rows', () => {
+test('v8 backup drops transfer and principal details while preserving aggregate market value', () => {
   const result = normalizeBackupData({
     app: 'bookkeeping',
     version: 8,
@@ -175,9 +176,11 @@ test('v8 backup normalization drops asset transfers and preserves principal audi
   });
 
   assert.equal('assetTransfers' in result, false);
+  assert.equal('fundPrincipalLogs' in result, false);
+  assert.equal(result.cards.some((card) => card.type === 'FUND'), false);
   assert.deepEqual(
-    result.fundPrincipalLogs.map((row) => row.id),
-    ['valid-principal-log'],
+    result.fundSavingsSnapshots.map((row) => [row.month, row.marketValue, row.prepaid]),
+    [['2026-10', 11_000, 0]],
   );
 });
 
@@ -241,13 +244,13 @@ test('v9 backup normalization restores source snapshot deducted by asset transfe
     ],
   });
 
-  assert.equal(result.version, 12);
+  assert.equal(result.version, 13);
   assert.equal(result.savingsActuals?.find((row) => row.cardId === 'postal')?.amount, 10_212_585);
   assert.equal(result.savingsActuals?.find((row) => row.cardId === 'fund-card')?.amount, 324_500);
   assert.equal('assetTransfers' in result, false);
 });
 
-test('legacy backup creates an exported-month fund snapshot from its current values', () => {
+test('legacy backup creates an exported-month fund savings total from current market value', () => {
   const result = normalizeBackupData({
     app: 'bookkeeping',
     version: 10,
@@ -271,17 +274,17 @@ test('legacy backup creates an exported-month fund snapshot from its current val
   });
 
   assert.deepEqual(
-    result.fundMonthSnapshots.map((row) => ({
-      fundCardId: row.fundCardId,
+    result.fundSavingsSnapshots.map((row) => ({
       month: row.month,
-      principal: row.principal,
-      value: row.value,
+      marketValue: row.marketValue,
+      prepaid: row.prepaid,
     })),
-    [{ fundCardId: 'legacy-fund', month: '2026-09', principal: 25_000, value: 28_000 }],
+    [{ month: '2026-09', marketValue: 28_000, prepaid: 0 }],
   );
+  assert.equal(result.cards.some((card) => card.type === 'FUND'), false);
 });
 
-test('v11 backup preserves monthly snapshots, keeps the latest duplicate, and drops orphans', () => {
+test('v11 backup aggregates monthly market values, keeps latest duplicates, and drops orphans', () => {
   const result = normalizeBackupData({
     app: 'bookkeeping',
     version: 11,
@@ -347,17 +350,17 @@ test('v11 backup preserves monthly snapshots, keeps the latest duplicate, and dr
   });
 
   assert.deepEqual(
-    result.fundMonthSnapshots
+    result.fundSavingsSnapshots
       .sort((a, b) => a.month.localeCompare(b.month))
-      .map((row) => [row.id, row.month, row.principal, row.value]),
+      .map((row) => [row.month, row.marketValue, row.prepaid]),
     [
-      ['september-latest', '2026-09', 15_000, 17_000],
-      ['october', '2026-10', 20_000, 23_000],
+      ['2026-09', 17_000, 0],
+      ['2026-10', 23_000, 0],
     ],
   );
 });
 
-test('v12 export omits the retired asset transfer ledger', async () => {
+test('v13 export omits retired fund and asset-transfer detail', async () => {
   db.close();
   await db.delete();
   await db.open();
@@ -370,13 +373,45 @@ test('v12 export omits the retired asset transfer ledger', async () => {
     sortOrder: 1,
     createdAt: 1,
   });
+  await db.fundSavingsSnapshots.put({
+    month: '2026-10',
+    marketValue: 50_000,
+    prepaid: 2_000,
+    updatedAt: 1,
+  });
 
   const result = await backupService.exportAll();
-  assert.equal(result.version, 12);
+  assert.equal(result.version, 13);
   assert.equal('assetTransfers' in result, false);
+  assert.equal('fundPrincipalLogs' in result, false);
+  assert.equal('fundMonthSnapshots' in result, false);
+  assert.deepEqual(result.fundSavingsSnapshots, [
+    { month: '2026-10', marketValue: 50_000, prepaid: 2_000, updatedAt: 1 },
+  ]);
 
   db.close();
   await db.delete();
+});
+
+test('v13 backup keeps only the latest valid fund savings row for each month', () => {
+  const result = normalizeBackupData({
+    app: 'bookkeeping',
+    version: 13,
+    exportedAt: '2026-10-09T00:00:00.000Z',
+    cards: [],
+    budgetSnapshots: [],
+    budgetLines: [],
+    transactions: [],
+    fundSavingsSnapshots: [
+      { month: '2026-09', marketValue: 10_000, prepaid: 500, updatedAt: 1 },
+      { month: '2026-09', marketValue: 12_000, prepaid: 800, updatedAt: 2 },
+      { month: 'bad', marketValue: 99_000, prepaid: 0, updatedAt: 3 },
+    ],
+  });
+
+  assert.deepEqual(result.fundSavingsSnapshots, [
+    { month: '2026-09', marketValue: 12_000, prepaid: 800, updatedAt: 2 },
+  ]);
 });
 
 test('backup normalization drops orphan history and broken transfer groups', () => {
@@ -666,11 +701,13 @@ test('backup normalization drops orphan history and broken transfer groups', () 
     result.consumptionBudgets.map((row) => row.id),
     ['valid-consumption-budget'],
   );
-  const fund = result.cards.find((card) => card.id === 'valid-fund');
   const savings = result.cards.find((card) => card.id === 'valid-savings');
   assert.equal('savingsPurpose' in (savings ?? {}), false);
-  assert.equal(fund?.fundPrincipal, 150);
-  assert.equal(fund?.fundValue, 250);
+  assert.equal(result.cards.some((card) => card.type === 'FUND'), false);
+  assert.deepEqual(
+    result.fundSavingsSnapshots.map((row) => [row.month, row.marketValue, row.prepaid]),
+    [['2026-08', 250, 0]],
+  );
   assert.equal('fundContributions' in result, false);
   assert.equal('fundSnapshots' in result, false);
 });

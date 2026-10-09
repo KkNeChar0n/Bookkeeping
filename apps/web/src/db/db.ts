@@ -2,6 +2,7 @@ import Dexie, { type Table } from 'dexie';
 import type { TxType } from '../domain/balance';
 import { VIRTUAL_CONSUMPTION_CARD_ID, VIRTUAL_CONSUMPTION_CARD_NAME } from '../domain/consumption';
 import { buildOrphanCleanupPlan } from '../domain/orphanCleanup';
+import { aggregateLegacyFundSavings } from '../domain/fundSavings';
 
 // 卡类型：储蓄卡 / 消费卡 / 基金
 export type CardType = 'SAVINGS' | 'SPEND' | 'FUND';
@@ -15,9 +16,9 @@ export interface CardRow {
   isDefault: number; // 0/1（Dexie 索引友好）
   sortOrder: number;
   createdAt: number;
-  // 基金专用：直接填的两个数（分）
-  fundPrincipal?: number; // 累计投入本金
-  fundValue?: number; // 当前市值
+  // 仅供 v21 以前的基金卡迁移读取。
+  fundPrincipal?: number;
+  fundValue?: number;
 }
 
 export interface BudgetSnapshotRow {
@@ -136,6 +137,14 @@ export interface FundMonthSnapshotRow {
   updatedAt: number;
 }
 
+// 全局基金储蓄池：每月最后填写的当前市值与预充金额。
+export interface FundSavingsSnapshotRow {
+  month: string; // YYYY-MM，同时作为主键
+  marketValue: number;
+  prepaid: number;
+  updatedAt: number;
+}
+
 // 基金资金卡在某月向基金注资；同次提交共享 batchId，可整批撤销。
 export interface LegacyFundContributionRow {
   id: string;
@@ -197,6 +206,7 @@ export class BookkeepingDB extends Dexie {
   consumptionBudgets!: Table<ConsumptionBudgetRow, string>;
   fundPrincipalLogs!: Table<FundPrincipalLogRow, string>;
   fundMonthSnapshots!: Table<FundMonthSnapshotRow, string>;
+  fundSavingsSnapshots!: Table<FundSavingsSnapshotRow, string>;
 
   constructor(name = 'bookkeeping') {
     super(name);
@@ -587,6 +597,73 @@ export class BookkeepingDB extends Dexie {
     // 已确认的储蓄余额、基金本金/市值与月度快照全部保持不变。
     this.version(20).stores({
       assetTransfers: null,
+    });
+
+    // v21：把逐只基金聚合为全局的市值和预充金额，并清理基金卡关联数据。
+    this.version(21)
+      .stores({
+        fundSavingsSnapshots: '&month',
+      })
+      .upgrade(async (tx) => {
+        const cards = (await tx.table('cards').toArray()) as CardRow[];
+        const funds = cards.filter((card) => card.type === 'FUND');
+        const oldSnapshots = (await tx
+          .table('fundMonthSnapshots')
+          .toArray()) as FundMonthSnapshotRow[];
+        const now = new Date();
+        const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+        const aggregated = aggregateLegacyFundSavings(funds, oldSnapshots, month, Date.now());
+        if (aggregated.length) await tx.table('fundSavingsSnapshots').bulkPut(aggregated);
+
+        const fundIds = new Set(funds.map((card) => card.id));
+        if (!fundIds.size) return;
+        const transactions = (await tx.table('transactions').toArray()) as TransactionRow[];
+        const affectedGroups = new Set(
+          transactions
+            .filter((row) => fundIds.has(row.cardId) || (!!row.peerCardId && fundIds.has(row.peerCardId)))
+            .map((row) => row.transferGroupId)
+            .filter((group): group is string => !!group),
+        );
+        const transactionIds = transactions
+          .filter(
+            (row) =>
+              fundIds.has(row.cardId) ||
+              (!!row.peerCardId && fundIds.has(row.peerCardId)) ||
+              (!!row.transferGroupId && affectedGroups.has(row.transferGroupId)),
+          )
+          .map((row) => row.id);
+        const budgetDetails = (await tx.table('budgetDetails').toArray()) as BudgetDetailRow[];
+        const budgetDetailIds = budgetDetails
+          .filter(
+            (row) => fundIds.has(row.cardId) || (!!row.peerCardId && fundIds.has(row.peerCardId)),
+          )
+          .map((row) => row.id);
+        const deleteByCardId = async (tableName: string) => {
+          for (const id of fundIds) await tx.table(tableName).where('cardId').equals(id).delete();
+        };
+        await Promise.all([
+          transactionIds.length
+            ? tx.table('transactions').bulkDelete(transactionIds)
+            : Promise.resolve(),
+          budgetDetailIds.length
+            ? tx.table('budgetDetails').bulkDelete(budgetDetailIds)
+            : Promise.resolve(),
+          deleteByCardId('budgetLines'),
+          deleteByCardId('savingsActuals'),
+          deleteByCardId('savingsEntries'),
+          deleteByCardId('savingsLogs'),
+          deleteByCardId('initialBalanceLogs'),
+          ...[...fundIds].map((id) =>
+            tx.table('consumptionBudgets').where('savingsCardId').equals(id).delete(),
+          ),
+        ]);
+        await tx.table('cards').bulkDelete([...fundIds]);
+      });
+
+    // v22：聚合完成后移除旧本金审计与逐只基金月度快照。
+    this.version(22).stores({
+      fundPrincipalLogs: null,
+      fundMonthSnapshots: null,
     });
 
     // Fresh installs skip upgrade callbacks, so seed the same internal account on populate.

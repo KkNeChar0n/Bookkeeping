@@ -19,7 +19,7 @@ export const cardViewService = {
     const target = (date ?? todayISO()).slice(0, 10);
     const cardsRaw = await db.cards.toArray();
     const cards = cardsRaw
-      .filter((card) => card.id !== VIRTUAL_CONSUMPTION_CARD_ID)
+      .filter((card) => card.type === 'SAVINGS' && card.id !== VIRTUAL_CONSUMPTION_CARD_ID)
       .sort((a, b) => a.sortOrder - b.sortOrder || a.createdAt - b.createdAt);
     const [snapshots, agg] = await Promise.all([budgetsService.list(), cardAggregates(target)]);
 
@@ -34,28 +34,17 @@ export const cardViewService = {
     return cards.map((c) => {
       const a = agg.get(c.id)!;
       const budgetBal = budgetByCard.get(c.id) ?? 0;
-      const isFund = c.type === 'FUND';
-      // 基金：本金/市值为直填的两个数；盈亏 = 市值 − 本金
-      const principal = isFund
-        ? (c.fundPrincipal ?? c.initialBalance)
-        : c.initialBalance + a.transferNet;
-      const value = isFund ? (c.fundValue ?? c.initialBalance) : a.balance;
-      const profit = isFund ? value - principal : a.adjust;
-      const profitPct = principal !== 0 ? Math.round((profit / principal) * 10000) / 100 : null;
       const overspent = a.balance < budgetBal;
       return {
         cardId: c.id,
         cardName: c.name,
         type: c.type ?? 'SAVINGS',
-        balance: fromCents(value),
+        balance: fromCents(a.balance),
         budgetBalance: fromCents(budgetBal),
-        diff: fromCents(value - budgetBal),
+        diff: fromCents(a.balance - budgetBal),
         overspent,
         income: fromCents(a.income),
         spent: fromCents(a.spent),
-        principal: fromCents(principal),
-        profit: fromCents(profit),
-        profitPct,
       };
     });
   },

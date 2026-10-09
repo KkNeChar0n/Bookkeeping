@@ -24,7 +24,7 @@ export interface CardAgg {
   income: Cents; // IN 合计
   spent: Cents; // -OUT 合计（正数）
   transferNet: Cents; // TRANSFER 净额
-  adjust: Cents; // ADJUST 合计（基金即累计盈亏）
+  adjust: Cents; // ADJUST 合计
 }
 
 /** 各卡截至某日期(含)的分项聚合；不传日期=全部 */
