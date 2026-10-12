@@ -142,6 +142,12 @@ export interface FundSavingsSnapshotRow {
   month: string; // YYYY-MM，同时作为主键
   marketValue: number;
   prepaid: number;
+  /** 本月买入现金减赎回现金（分）；缺失表示尚未确认，不能沿用上月。 */
+  netInvestment?: number;
+  /** 已核对的历史月底起点，净投入从下月开始累计；不代表本月投入为0。 */
+  flowBaseline?: 1;
+  /** 历史市值未知，marketValue中的0仅为计算占位。 */
+  marketValueKnown?: false;
   updatedAt: number;
 }
 

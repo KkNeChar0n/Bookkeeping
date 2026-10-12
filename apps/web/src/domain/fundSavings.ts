@@ -15,6 +15,9 @@ export interface FundSavingsValue {
   month: string;
   marketValue: number;
   prepaid: number;
+  netInvestment?: number;
+  flowBaseline?: 1;
+  marketValueKnown?: false;
   updatedAt: number;
 }
 

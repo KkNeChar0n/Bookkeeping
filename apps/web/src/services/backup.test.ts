@@ -94,7 +94,7 @@ test('legacy backup becomes one virtual account and avoids v8 quota double count
   assert.deepEqual(result.initialBalanceLogs, []);
   assert.equal('assetTransfers' in result, false);
   assert.equal('fundPrincipalLogs' in result, false);
-  assert.equal(result.version, 13);
+  assert.equal(result.version, 14);
   assert.deepEqual(result.fundSavingsSnapshots, []);
   assert.equal('fundMonthSnapshots' in result, false);
   assert.equal('fundContributions' in result, false);
@@ -177,7 +177,10 @@ test('v8 backup drops transfer and principal details while preserving aggregate 
 
   assert.equal('assetTransfers' in result, false);
   assert.equal('fundPrincipalLogs' in result, false);
-  assert.equal(result.cards.some((card) => card.type === 'FUND'), false);
+  assert.equal(
+    result.cards.some((card) => card.type === 'FUND'),
+    false,
+  );
   assert.deepEqual(
     result.fundSavingsSnapshots.map((row) => [row.month, row.marketValue, row.prepaid]),
     [['2026-10', 11_000, 0]],
@@ -244,7 +247,7 @@ test('v9 backup normalization restores source snapshot deducted by asset transfe
     ],
   });
 
-  assert.equal(result.version, 13);
+  assert.equal(result.version, 14);
   assert.equal(result.savingsActuals?.find((row) => row.cardId === 'postal')?.amount, 10_212_585);
   assert.equal(result.savingsActuals?.find((row) => row.cardId === 'fund-card')?.amount, 324_500);
   assert.equal('assetTransfers' in result, false);
@@ -281,7 +284,10 @@ test('legacy backup creates an exported-month fund savings total from current ma
     })),
     [{ month: '2026-09', marketValue: 28_000, prepaid: 0 }],
   );
-  assert.equal(result.cards.some((card) => card.type === 'FUND'), false);
+  assert.equal(
+    result.cards.some((card) => card.type === 'FUND'),
+    false,
+  );
 });
 
 test('v11 backup aggregates monthly market values, keeps latest duplicates, and drops orphans', () => {
@@ -360,7 +366,7 @@ test('v11 backup aggregates monthly market values, keeps latest duplicates, and 
   );
 });
 
-test('v13 export omits retired fund and asset-transfer detail', async () => {
+test('v14 export/import round-trips signed net investment and reconciliation markers', async () => {
   db.close();
   await db.delete();
   await db.open();
@@ -373,27 +379,54 @@ test('v13 export omits retired fund and asset-transfer detail', async () => {
     sortOrder: 1,
     createdAt: 1,
   });
-  await db.fundSavingsSnapshots.put({
-    month: '2026-10',
-    marketValue: 50_000,
-    prepaid: 2_000,
-    updatedAt: 1,
-  });
+  await db.fundSavingsSnapshots.bulkPut([
+    {
+      month: '2026-09',
+      marketValue: 0,
+      prepaid: 5_670,
+      flowBaseline: 1,
+      marketValueKnown: false,
+      updatedAt: 1,
+    },
+    {
+      month: '2026-10',
+      marketValue: 50_000,
+      prepaid: 2_000,
+      netInvestment: -3_000,
+      updatedAt: 2,
+    },
+  ]);
 
   const result = await backupService.exportAll();
-  assert.equal(result.version, 13);
+  assert.equal(result.version, 14);
   assert.equal('assetTransfers' in result, false);
   assert.equal('fundPrincipalLogs' in result, false);
   assert.equal('fundMonthSnapshots' in result, false);
   assert.deepEqual(result.fundSavingsSnapshots, [
-    { month: '2026-10', marketValue: 50_000, prepaid: 2_000, updatedAt: 1 },
+    {
+      month: '2026-09',
+      marketValue: 0,
+      prepaid: 5_670,
+      flowBaseline: 1,
+      marketValueKnown: false,
+      updatedAt: 1,
+    },
+    {
+      month: '2026-10',
+      marketValue: 50_000,
+      prepaid: 2_000,
+      netInvestment: -3_000,
+      updatedAt: 2,
+    },
   ]);
+  await backupService.importAll(result);
+  assert.deepEqual(await db.fundSavingsSnapshots.toArray(), result.fundSavingsSnapshots);
 
   db.close();
   await db.delete();
 });
 
-test('v13 backup keeps only the latest valid fund savings row for each month', () => {
+test('v13 backup keeps the latest valid balances and leaves net investment unknown', () => {
   const result = normalizeBackupData({
     app: 'bookkeeping',
     version: 13,
@@ -411,6 +444,94 @@ test('v13 backup keeps only the latest valid fund savings row for each month', (
 
   assert.deepEqual(result.fundSavingsSnapshots, [
     { month: '2026-09', marketValue: 12_000, prepaid: 800, updatedAt: 2 },
+  ]);
+  assert.equal('netInvestment' in result.fundSavingsSnapshots[0], false);
+});
+
+test('backup strips invalid net investment without dropping valid fund balances', () => {
+  const result = normalizeBackupData({
+    app: 'bookkeeping',
+    version: 14,
+    exportedAt: '2026-10-09T00:00:00.000Z',
+    cards: [],
+    budgetSnapshots: [],
+    budgetLines: [],
+    transactions: [],
+    fundSavingsSnapshots: [
+      {
+        month: '2026-10',
+        marketValue: 2_523_784,
+        prepaid: 261_000,
+        netInvestment: Number.MAX_SAFE_INTEGER + 1,
+        updatedAt: 1,
+      },
+      {
+        month: '2026-11',
+        marketValue: 2_600_000,
+        prepaid: 100_000,
+        netInvestment: 0.5,
+        updatedAt: 2,
+      },
+    ],
+  });
+
+  assert.deepEqual(result.fundSavingsSnapshots, [
+    { month: '2026-10', marketValue: 2_523_784, prepaid: 261_000, updatedAt: 1 },
+    { month: '2026-11', marketValue: 2_600_000, prepaid: 100_000, updatedAt: 2 },
+  ]);
+  assert.equal(
+    result.fundSavingsSnapshots.every((row) => !('netInvestment' in row)),
+    true,
+  );
+});
+
+test('backup strictly sanitizes reconciliation markers and baseline net investment', () => {
+  const result = normalizeBackupData({
+    app: 'bookkeeping',
+    version: 14,
+    exportedAt: '2026-10-09T00:00:00.000Z',
+    cards: [],
+    budgetSnapshots: [],
+    budgetLines: [],
+    transactions: [],
+    fundSavingsSnapshots: [
+      {
+        month: '2026-09',
+        marketValue: 0,
+        prepaid: 567_000,
+        netInvestment: 123_000,
+        flowBaseline: 1,
+        marketValueKnown: false,
+        updatedAt: 1,
+      },
+      {
+        month: '2026-10',
+        marketValue: 2_523_784,
+        prepaid: 261_000,
+        netInvestment: 50_000,
+        flowBaseline: true,
+        marketValueKnown: 0,
+        updatedAt: 2,
+      },
+    ],
+  } as unknown as BackupData);
+
+  assert.deepEqual(result.fundSavingsSnapshots, [
+    {
+      month: '2026-09',
+      marketValue: 0,
+      prepaid: 567_000,
+      flowBaseline: 1,
+      marketValueKnown: false,
+      updatedAt: 1,
+    },
+    {
+      month: '2026-10',
+      marketValue: 2_523_784,
+      prepaid: 261_000,
+      netInvestment: 50_000,
+      updatedAt: 2,
+    },
   ]);
 });
 
@@ -703,11 +824,73 @@ test('backup normalization drops orphan history and broken transfer groups', () 
   );
   const savings = result.cards.find((card) => card.id === 'valid-savings');
   assert.equal('savingsPurpose' in (savings ?? {}), false);
-  assert.equal(result.cards.some((card) => card.type === 'FUND'), false);
+  assert.equal(
+    result.cards.some((card) => card.type === 'FUND'),
+    false,
+  );
   assert.deepEqual(
     result.fundSavingsSnapshots.map((row) => [row.month, row.marketValue, row.prepaid]),
     [['2026-08', 250, 0]],
   );
   assert.equal('fundContributions' in result, false);
   assert.equal('fundSnapshots' in result, false);
+});
+
+test('clearing non-fund data preserves fund balances and unknown market marker only', async () => {
+  db.close();
+  await db.delete();
+  await db.open();
+  await db.cards.add({
+    id: 'clear-savings',
+    name: '储蓄',
+    type: 'SAVINGS',
+    initialBalance: 10_000,
+    isDefault: 1,
+    sortOrder: 1,
+    createdAt: 1,
+  });
+  await db.fundSavingsSnapshots.bulkPut([
+    {
+      month: '2026-09',
+      marketValue: 2_000_000,
+      prepaid: 567_000,
+      flowBaseline: 1,
+      marketValueKnown: false,
+      updatedAt: 1,
+    },
+    {
+      month: '2026-10',
+      marketValue: 2_523_784,
+      prepaid: 261_000,
+      netInvestment: -100_000,
+      marketValueKnown: false,
+      updatedAt: 2,
+    },
+  ]);
+
+  await backupService.clearAllExceptFund();
+
+  assert.deepEqual(await db.fundSavingsSnapshots.toArray(), [
+    {
+      month: '2026-09',
+      marketValue: 2_000_000,
+      prepaid: 567_000,
+      marketValueKnown: false,
+      updatedAt: 1,
+    },
+    {
+      month: '2026-10',
+      marketValue: 2_523_784,
+      prepaid: 261_000,
+      marketValueKnown: false,
+      updatedAt: 2,
+    },
+  ]);
+  assert.deepEqual(
+    (await db.cards.toArray()).map((card) => card.id),
+    [VIRTUAL_CONSUMPTION_CARD_ID],
+  );
+
+  db.close();
+  await db.delete();
 });

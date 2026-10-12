@@ -142,7 +142,7 @@ export function normalizeBackupData(data: BackupData): NormalizedBackupData {
 
   const normalized = {
     app: 'bookkeeping' as const,
-    version: 13,
+    version: 14,
     exportedAt: data.exportedAt,
     cards: [...data.cards.filter((card) => card.type !== 'SPEND'), virtualCard()],
     budgetSnapshots: data.budgetSnapshots ?? [],
@@ -276,8 +276,19 @@ export function normalizeBackupData(data: BackupData): NormalizedBackupData {
     ) {
       continue;
     }
+    const { netInvestment, flowBaseline, marketValueKnown, ...balance } = row;
+    const hasFlowBaseline = flowBaseline === 1;
+    const sanitized: FundSavingsSnapshotRow = {
+      ...balance,
+      ...(hasFlowBaseline
+        ? { flowBaseline: 1 as const }
+        : typeof netInvestment === 'number' && Number.isSafeInteger(netInvestment)
+          ? { netInvestment }
+          : {}),
+      ...(marketValueKnown === false ? { marketValueKnown: false as const } : {}),
+    };
     const found = suppliedFundSavings.get(row.month);
-    if (!found || row.updatedAt >= found.updatedAt) suppliedFundSavings.set(row.month, { ...row });
+    if (!found || row.updatedAt >= found.updatedAt) suppliedFundSavings.set(row.month, sanitized);
   }
   const fundSavingsSnapshots = Array.isArray(data.fundSavingsSnapshots)
     ? [...suppliedFundSavings.values()]
@@ -307,7 +318,7 @@ export function normalizeBackupData(data: BackupData): NormalizedBackupData {
   });
   return {
     app: 'bookkeeping',
-    version: 13,
+    version: 14,
     exportedAt: data.exportedAt,
     cards: finalCards,
     budgetSnapshots: normalized.budgetSnapshots,
@@ -355,7 +366,7 @@ export const backupService = {
     ]);
     return {
       app: 'bookkeeping',
-      version: 13,
+      version: 14,
       exportedAt: new Date().toISOString(),
       cards,
       budgetSnapshots,
@@ -461,6 +472,7 @@ export const backupService = {
         db.savingsLogs,
         db.initialBalanceLogs,
         db.consumptionBudgets,
+        db.fundSavingsSnapshots,
       ],
       async () => {
         const removable = (await db.cards.toArray())
@@ -477,6 +489,10 @@ export const backupService = {
           db.savingsLogs.clear(),
           db.initialBalanceLogs.clear(),
           db.consumptionBudgets.clear(),
+          db.fundSavingsSnapshots.toCollection().modify((row) => {
+            delete row.netInvestment;
+            delete row.flowBaseline;
+          }),
         ]);
         await db.cards.put(virtualCard());
       },

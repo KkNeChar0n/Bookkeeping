@@ -8,12 +8,18 @@ import { fundSavingsService } from './fundSavings.service';
 
 export interface Reconciliation {
   refMonth: string;
-  budgetTotal: string; // 预算总资产 = Σ储蓄预期 + 基金储蓄池
+  budgetTotal: string; // 对账预算基准 = Σ储蓄预期 − 累计基金净投入 + 市值
   actualTotal: string; // 实际总资产 = Σ储蓄实际 + 基金储蓄池
   diff: string; // 实际 − 预算
   fundMarketValue: string;
   fundPrepaid: string;
   fundTotal: string;
+  fundNetInvestment: string | null;
+  fundCumulativeNetInvestment: string;
+  fundNetInvestmentFilled: boolean; // 截至目标月的净投入是否完整
+  fundMissingNetInvestmentMonths: string[];
+  fundFlowBaselineMonth: string | null;
+  fundMarketValueFilled: boolean;
   overspend: string; // 累计消费超支（净额：已花 − 消费预算）
   prepaid: string; // 预充暂存（虚拟消费账户里还没花掉的钱，随结转自动升降）
   carryover: string; // 累计结转（用掉上月预充的部分）
@@ -64,11 +70,12 @@ export const reconciliationService = {
     const prepaid = moved - overspend - carryover;
     const incomeDiff = cumActualIncome - cumExpectedIncome;
 
-    const budgetTotal = savingsExpected + fundTotal;
+    const budgetTotal = savingsExpected - toCents(fund.cumulativeNetInvestment) + fundMarketValue;
     const actualTotal = savingsActual + fundTotal;
     const diff = actualTotal - budgetTotal;
     // 差额 = 收入差额 + 利息 − 消费超支 − 预充暂存。
-    // 基金储蓄池等额进入预算与实际，因此不参与差额拆解。
+    // 独立预充只进实际；累计净投入扣减预算现金，市值等额进入两边。
+    // 净投入未填只能按已知值计算并提示不完整，不能把真实残差归零。
     //      （消费超支 + 预充暂存 = Σ超额充值 − Σ结转 = 额外挪出净额）
     const interest = diff - incomeDiff + overspend + prepaid;
 
@@ -80,6 +87,12 @@ export const reconciliationService = {
       fundMarketValue: fromCents(fundMarketValue),
       fundPrepaid: fromCents(fundPrepaid),
       fundTotal: fromCents(fundTotal),
+      fundNetInvestment: fund.netInvestment,
+      fundCumulativeNetInvestment: fund.cumulativeNetInvestment,
+      fundNetInvestmentFilled: fund.missingNetInvestmentMonths.length === 0,
+      fundMissingNetInvestmentMonths: fund.missingNetInvestmentMonths,
+      fundFlowBaselineMonth: fund.flowBaselineMonth,
+      fundMarketValueFilled: !fund.filled || fund.marketValueFilled,
       overspend: fromCents(overspend),
       prepaid: fromCents(prepaid),
       carryover: fromCents(carryover),

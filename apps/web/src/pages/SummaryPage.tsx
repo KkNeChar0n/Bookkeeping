@@ -211,7 +211,7 @@ export function SummaryPage() {
         {r ? (
           <>
             <div className="sum-row">
-              <span>预算总资产</span>
+              <span>对账预算基准</span>
               <span>{fmtMoney(r.budgetTotal)}</span>
             </div>
             <div className="sum-row">
@@ -219,7 +219,7 @@ export function SummaryPage() {
               <span>{fmtMoney(r.actualTotal)}</span>
             </div>
             <div className="sum-row total">
-              <span>差额（实际−预算）</span>
+              <span>差额（实际−基准）</span>
               <b className={Number(r.diff) >= 0 ? 'pos' : 'neg'}>{fmtSigned(r.diff)}</b>
             </div>
             <div className="brk-title">差额拆解</div>
@@ -244,18 +244,29 @@ export function SummaryPage() {
               </span>
             </div>
             <div className="brk">
-              <span>其他差额（不含基金注资）</span>
+              <span>利息/其他</span>
               <span className={Number(r.interest) >= 0 ? 'pos' : 'neg'}>
                 {fmtSigned(r.interest)}
               </span>
             </div>
             <div className="muted mt" style={{ fontSize: 12 }}>
-              基金当前市值与基金预充金额等额进入预算和实际，不改变差额。消费超支=逐月
+              基金市值等额进入对账预算基准和实际，不计算盈亏；基金预充是未包含在其他储蓄卡余额中的独立现金，只进入实际；累计基金净投入从预算基准中扣除，本身不是资产。消费超支=逐月
               max(已花−当月消费预算, 0)；消费预充暂存=累计超额充值−累计超支−累计结转（累计结转{' '}
               {fmtMoney(r.carryover)}）。
             </div>
             {!r.savingsFilled && (
               <div className="warn mt">部分储蓄卡未填该期真实额，总资产/差额暂不完整。</div>
+            )}
+            {!r.fundMarketValueFilled && (
+              <div className="warn mt">
+                该期基金市值尚未填写，总资产暂不完整；市值在对账两边均按 0 占位，因此不会改变差额。
+              </div>
+            )}
+            {!r.fundNetInvestmentFilled && (
+              <div className="warn mt">
+                基金净投入尚未确认的月份：
+                {r.fundMissingNetInvestmentMonths.join('、')}。对账预算基准和“利息/其他”暂不完整。
+              </div>
             )}
           </>
         ) : (
@@ -267,16 +278,52 @@ export function SummaryPage() {
         <div className="detail-sub">基金储蓄池（截至 {refMonth}）</div>
         <div className="sum-row">
           <span>当前市值</span>
-          <span>{fmtMoney(r?.fundMarketValue ?? '0')}</span>
+          {r?.fundMarketValueFilled === false ? (
+            <span className="muted">未填</span>
+          ) : (
+            <span>{fmtMoney(r?.fundMarketValue ?? '0')}</span>
+          )}
         </div>
         <div className="sum-row">
           <span>预充金额</span>
           <span>{fmtMoney(r?.fundPrepaid ?? '0')}</span>
         </div>
         <div className="sum-row total">
-          <span>合计</span>
+          <span>{r?.fundMarketValueFilled === false ? '已填部分合计' : '合计'}</span>
           <b>{fmtMoney(r?.fundTotal ?? '0')}</b>
         </div>
+        <div className="sum-row">
+          <span>
+            {mode === 'month' ? '本月净投入' : `${refMonth} 净投入`}{' '}
+            <span className="meta">非资产项</span>
+          </span>
+          {r?.fundFlowBaselineMonth === refMonth ? (
+            <span className="muted">历史起点</span>
+          ) : r?.fundNetInvestment !== null && r?.fundNetInvestment !== undefined ? (
+            <span className={Number(r.fundNetInvestment) >= 0 ? 'pos' : 'neg'}>
+              {Number(r.fundNetInvestment) === 0 ? '0.00' : fmtSigned(r.fundNetInvestment)}
+            </span>
+          ) : (
+            <span className="muted">未确认</span>
+          )}
+        </div>
+        <div className="sum-row">
+          <span>
+            {r?.fundFlowBaselineMonth ? '自起点后累计已确认净投入' : '累计已确认净投入'}{' '}
+            <span className="meta">非资产项</span>
+          </span>
+          <span className={Number(r?.fundCumulativeNetInvestment ?? 0) >= 0 ? 'pos' : 'neg'}>
+            {Number(r?.fundCumulativeNetInvestment ?? 0) === 0
+              ? '0.00'
+              : fmtSigned(r?.fundCumulativeNetInvestment ?? '0')}
+          </span>
+        </div>
+        {r?.fundFlowBaselineMonth && (
+          <div className="muted mt" style={{ fontSize: 12 }}>
+            历史对账起点：{r.fundFlowBaselineMonth}
+            。净投入只从下一月开始累计；起点不会抹平已有差额。
+          </div>
+        )}
       </div>
     </div>
   );

@@ -236,6 +236,13 @@ test('fund savings overwrites a month and carries the latest values forward', as
     marketValue: '0.00',
     prepaid: '0.00',
     total: '0.00',
+    netInvestment: null,
+    netInvestmentFilled: false,
+    cumulativeNetInvestment: '0.00',
+    missingNetInvestmentMonths: [],
+    isFlowBaseline: false,
+    flowBaselineMonth: null,
+    marketValueFilled: false,
     filled: false,
     updatedAt: null,
   });
