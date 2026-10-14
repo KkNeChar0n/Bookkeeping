@@ -852,68 +852,10 @@ test('backup normalization drops orphan history and broken transfer groups', () 
   assert.equal('fundSnapshots' in result, false);
 });
 
-test('clearing non-fund data preserves fund balances and unknown market marker only', async () => {
-  db.close();
-  await db.delete();
-  await db.open();
-  await db.cards.add({
-    id: 'clear-savings',
-    name: '储蓄',
-    type: 'SAVINGS',
-    initialBalance: 10_000,
-    isDefault: 1,
-    sortOrder: 1,
-    createdAt: 1,
-  });
-  await db.fundSavingsSnapshots.bulkPut([
-    {
-      month: '2026-09',
-      marketValue: 2_000_000,
-      prepaid: 567_000,
-      flowBaseline: 1,
-      marketValueKnown: false,
-      updatedAt: 1,
-    },
-    {
-      month: '2026-10',
-      marketValue: 2_523_784,
-      prepaid: 261_000,
-      netInvestment: -100_000,
-      marketValueKnown: false,
-      updatedAt: 2,
-    },
-  ]);
-  await db.bookkeepingStart.put(bookkeepingStart);
-  await db.ledgerArchives.put(ledgerArchive);
-
-  await backupService.clearAllExceptFund();
-
-  assert.equal(await db.bookkeepingStart.count(), 0);
-  assert.equal(await db.ledgerArchives.count(), 0);
-
-  assert.deepEqual(await db.fundSavingsSnapshots.toArray(), [
-    {
-      month: '2026-09',
-      marketValue: 2_000_000,
-      prepaid: 567_000,
-      marketValueKnown: false,
-      updatedAt: 1,
-    },
-    {
-      month: '2026-10',
-      marketValue: 2_523_784,
-      prepaid: 261_000,
-      marketValueKnown: false,
-      updatedAt: 2,
-    },
-  ]);
-  assert.deepEqual(
-    (await db.cards.toArray()).map((card) => card.id),
-    [VIRTUAL_CONSUMPTION_CARD_ID],
-  );
-
-  db.close();
-  await db.delete();
+test('backup API no longer exposes the retired non-fund clearing operation', () => {
+  assert.equal('clearAllExceptFund' in backupService, false);
+  assert.equal(typeof backupService.downloadBackup, 'function');
+  assert.equal(typeof backupService.importFromFile, 'function');
 });
 
 test('v15 backup preserves the start, archive and strict consumption archive flag', async () => {

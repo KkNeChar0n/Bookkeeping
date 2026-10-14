@@ -30,29 +30,6 @@ export function BackupPanel() {
     }
   };
 
-  const doClear = async () => {
-    if (
-      !window.confirm(
-        '将删除全部储蓄卡、消费流水、预算、消费预算、修改日志、基金净投入、历史对账起点、重新起账配置和全部本地旧账归档；保留基金市值与预充金额。此操作不可撤销，确定？',
-      )
-    )
-      return;
-    if (
-      !window.confirm(
-        '再确认一次：净投入和历史对账起点依赖旧账本，清空后都会删除，新账本需要重新设置起点并逐月确认。建议先「导出备份」。',
-      )
-    )
-      return;
-    setMsg('');
-    try {
-      await backupService.clearAllExceptFund();
-      qc.invalidateQueries();
-      setMsg('已清空（基金市值与预充已保留；净投入和历史对账起点已清除，需重新确认）');
-    } catch (e) {
-      setMsg(e instanceof Error ? e.message : '清空失败');
-    }
-  };
-
   return (
     <>
       <div className="section-title">数据备份</div>
@@ -80,17 +57,6 @@ export function BackupPanel() {
           }}
         />
         {msg && <div className="muted mt">{msg}</div>}
-      </div>
-
-      <div className="section-title">危险操作</div>
-      <div className="card">
-        <div className="muted" style={{ marginBottom: 10 }}>
-          清空普通账本后，基金市值与预充金额会保留，但历史净投入和对账起点会删除；新账本不会把未知净投入自动当作
-          0。重新起账配置和本地旧账归档也会删除。若要保留历史消费，请使用上方「重新起账」，不要清空。清空前建议先导出备份。
-        </div>
-        <button className="danger" style={{ width: '100%' }} onClick={doClear}>
-          清空普通账本（保留基金市值与预充）
-        </button>
       </div>
     </>
   );
