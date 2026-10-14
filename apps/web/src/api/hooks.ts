@@ -18,6 +18,19 @@ import { incomeCompareService } from '../services/incomeCompare.service';
 import { categoriesService } from '../services/categories';
 import { initialBalanceLogService } from '../services/initialBalanceLog.service';
 import { fundSavingsService } from '../services/fundSavings.service';
+import { bookkeepingRestartService } from '../services/bookkeepingRestart.service';
+
+// ---- 当前账本起点与手工重新起账 ----
+export function useBookkeepingStart() {
+  return useQuery({ queryKey: ['bookkeepingStart'], queryFn: () => bookkeepingRestartService.current() });
+}
+export function useRestartBookkeeping() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => bookkeepingRestartService.restart(),
+    onSuccess: () => qc.invalidateQueries(),
+  });
+}
 
 // ---- 失效所有受余额影响的视图 ----
 function useInvalidateLedger() {
@@ -37,6 +50,7 @@ function useInvalidateLedger() {
     qc.invalidateQueries({ queryKey: ['incomeCompare'] });
     qc.invalidateQueries({ queryKey: ['initialBalanceLogs'] });
     qc.invalidateQueries({ queryKey: ['fundSavings'] });
+    qc.invalidateQueries({ queryKey: ['bookkeepingStart'] });
   };
 }
 
@@ -436,7 +450,7 @@ export function useIncomeCompare(prefix: string) {
 export function useReconciliation(refMonth: string) {
   return useQuery({
     queryKey: ['reconciliation', refMonth],
-    queryFn: () => reconciliationService.compute(refMonth),
+    queryFn: () => reconciliationService.report(refMonth),
   });
 }
 

@@ -1,5 +1,6 @@
 import { db, newId, nowTs } from '../db/db';
 import { fromCents, toCents, type Cents } from '../domain/money';
+import { assertActiveMonth, getBookkeepingStart } from './bookkeepingScope';
 
 export type SavingsEntryKind = 'INCOME' | 'EXCESS';
 
@@ -13,6 +14,8 @@ export interface SavingsEntryDTO {
 export const savingsEntryService = {
   /** 某卡某月的多笔条目（收入 + 超额支出） */
   async list(cardId: string, month: string): Promise<SavingsEntryDTO[]> {
+    const start = await getBookkeepingStart();
+    if (start && month < start.startDate.slice(0, 7)) return [];
     const rows = await db.savingsEntries.where('[cardId+month]').equals([cardId, month]).toArray();
     return rows
       .sort((a, b) => a.createdAt - b.createdAt)
@@ -26,6 +29,7 @@ export const savingsEntryService = {
     amount: string;
     note?: string;
   }): Promise<void> {
+    await assertActiveMonth(input.month);
     const amt = toCents(input.amount);
     if (amt <= 0) throw new Error('金额必须为正');
     await db.savingsEntries.add({
@@ -50,6 +54,7 @@ export const savingsEntryService = {
     kind: SavingsEntryKind;
     amount: string;
   }): Promise<void> {
+    await assertActiveMonth(input.month);
     const rows = await db.savingsEntries
       .where('[cardId+month]')
       .equals([input.cardId, input.month])
@@ -72,21 +77,37 @@ export const savingsEntryService = {
 
   /** 某周期(prefix)的实际收入合计（所有储蓄卡） */
   async actualIncome(prefix: string): Promise<Cents> {
-    const rows = await db.savingsEntries.where('kind').equals('INCOME').toArray();
-    return rows.filter((r) => r.month.startsWith(prefix)).reduce((s, r) => s + r.amount, 0);
+    const [rows, start] = await Promise.all([
+      db.savingsEntries.where('kind').equals('INCOME').toArray(),
+      getBookkeepingStart(),
+    ]);
+    const startMonth = start?.startDate.slice(0, 7);
+    return rows
+      .filter((r) => r.month.startsWith(prefix) && (!startMonth || r.month >= startMonth))
+      .reduce((s, r) => s + r.amount, 0);
   },
 
   /** 某卡截至某月的累计收入 */
   async cumIncomeUpTo(cardId: string, refMonth: string): Promise<Cents> {
-    const all = await db.savingsEntries.where('cardId').equals(cardId).toArray();
+    const [all, start] = await Promise.all([
+      db.savingsEntries.where('cardId').equals(cardId).toArray(),
+      getBookkeepingStart(),
+    ]);
+    const startMonth = start?.startDate.slice(0, 7);
     return all
-      .filter((r) => r.kind === 'INCOME' && r.month <= refMonth)
+      .filter((r) => r.kind === 'INCOME' && r.month <= refMonth && (!startMonth || r.month >= startMonth))
       .reduce((s, r) => s + r.amount, 0);
   },
 
   /** 截至某月的累计超额支出（所有储蓄卡）——对账里真正从储蓄流出的消费钱 */
   async cumExcessUpTo(refMonth: string): Promise<Cents> {
-    const rows = await db.savingsEntries.where('kind').equals('EXCESS').toArray();
-    return rows.filter((r) => r.month <= refMonth).reduce((s, r) => s + r.amount, 0);
+    const [rows, start] = await Promise.all([
+      db.savingsEntries.where('kind').equals('EXCESS').toArray(),
+      getBookkeepingStart(),
+    ]);
+    const startMonth = start?.startDate.slice(0, 7);
+    return rows
+      .filter((r) => r.month <= refMonth && (!startMonth || r.month >= startMonth))
+      .reduce((s, r) => s + r.amount, 0);
   },
 };

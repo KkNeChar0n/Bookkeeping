@@ -1,6 +1,7 @@
 import { db, nowTs, type FundSavingsSnapshotRow } from '../db/db';
 import { fromCents, toCents } from '../domain/money';
 import { isValidMonth } from '../domain/fundSavings';
+import { assertActiveMonth, getBookkeepingStart } from './bookkeepingScope';
 
 export interface FundSavingsView {
   month: string;
@@ -103,11 +104,31 @@ function toView(month: string, rows: readonly FundSavingsSnapshotRow[]): FundSav
 export const fundSavingsService = {
   async get(refMonth?: string): Promise<FundSavingsView> {
     const month = normalizeMonth(refMonth);
-    return toView(month, await db.fundSavingsSnapshots.toArray());
+    const [rows, start] = await Promise.all([
+      db.fundSavingsSnapshots.toArray(),
+      getBookkeepingStart(),
+    ]);
+    const startMonth = start?.startDate.slice(0, 7);
+    const view = toView(month, rows
+      .filter((row) => !startMonth || row.month >= startMonth)
+      .map((row) => start ? { ...row, flowBaseline: undefined } : row));
+    if (
+      start?.manualOpening && month >= startMonth! &&
+      (!start.fundOpeningConfirmed || !rows.some((row) => row.month === startMonth)) &&
+      !view.missingNetInvestmentMonths.includes(startMonth!)
+    ) view.missingNetInvestmentMonths.unshift(startMonth!);
+    return view;
   },
 
   async list(): Promise<FundSavingsView[]> {
-    const rows = await db.fundSavingsSnapshots.toArray();
+    const [all, start] = await Promise.all([
+      db.fundSavingsSnapshots.toArray(),
+      getBookkeepingStart(),
+    ]);
+    const startMonth = start?.startDate.slice(0, 7);
+    const rows = all
+      .filter((row) => !startMonth || row.month >= startMonth)
+      .map((row) => start ? { ...row, flowBaseline: undefined } : row);
     return rows
       .sort((a, b) => b.month.localeCompare(a.month) || b.updatedAt - a.updatedAt)
       .map((row) => toView(row.month, rows));
@@ -121,6 +142,9 @@ export const fundSavingsService = {
     flowBaseline?: boolean;
   }): Promise<FundSavingsView> {
     const month = normalizeMonth(input.month);
+    await assertActiveMonth(month);
+    const start = await getBookkeepingStart();
+    if (start && input.flowBaseline) throw new Error('重新起账后不能再设置历史对账起点，请填写起账后的本月净投入');
     const marketValueFilled = !!input.marketValue.trim();
     const marketValue = marketValueFilled ? toCents(input.marketValue) : 0;
     const prepaid = toCents(input.prepaid);
@@ -143,7 +167,31 @@ export const fundSavingsService = {
       ...(input.flowBaseline ? { flowBaseline: 1 as const } : {}),
       ...(!marketValueFilled ? { marketValueKnown: false as const } : {}),
     };
-    await db.fundSavingsSnapshots.put(row);
+    await db.transaction('rw', db.fundSavingsSnapshots, db.bookkeepingStart, async () => {
+      const currentStart = await getBookkeepingStart();
+      if (currentStart?.manualOpening && !currentStart.fundOpeningConfirmed) {
+        if (month !== currentStart.startDate.slice(0, 7)) {
+          throw new Error('请先在起账月份确认基金开账金额，再填写之后月份');
+        }
+        if (
+          !marketValueFilled ||
+          !/^\d+(?:\.\d{1,2})?$/.test(input.marketValue.trim()) ||
+          !/^\d+(?:\.\d{1,2})?$/.test(input.prepaid.trim()) ||
+          netInvestment !== 0 ||
+          !/^0+(?:\.0{1,2})?$/.test(input.netInvestment?.trim() ?? '')
+        ) {
+          throw new Error('首次确认请填写已包含在预算期初里的基金市值和独立现金，净投入填0；确认后再记录新的买入或赎回');
+        }
+        // Fix this baseline once, in the same transaction as the first snapshot.
+        // Later edits/buys must not silently move the asset opening point.
+        await db.bookkeepingStart.update('active', {
+          openingFundMarketValue: marketValue,
+          openingFundPrepaid: prepaid,
+          fundOpeningConfirmed: true,
+        });
+      }
+      await db.fundSavingsSnapshots.put(row);
+    });
     return this.get(month);
   },
 };

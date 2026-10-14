@@ -2,12 +2,14 @@ import { useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   useAddBudgetDetail,
+  useBookkeepingStart,
   useBudgetCurrentMonth,
   useCards,
   useCategories,
   useDeleteBudgetDetail,
 } from '../api/hooks';
 import { currentMonthStr, fmtMoney } from '../lib/format';
+import { BookkeepingScopeNotice } from '../components/BookkeepingScopeNotice';
 
 type Mode = 'idle' | 'IN' | 'EXPENSE';
 const THRESH = 60;
@@ -29,6 +31,8 @@ export function BudgetEditPage() {
   const delDetail = useDeleteBudgetDetail();
 
   const [month, setMonth] = useState(params.get('month') || currentMonthStr());
+  const startDate = useBookkeepingStart().data?.startDate;
+  const historical = !!startDate && month < startDate.slice(0, 7);
   const view = useBudgetCurrentMonth(id, month);
   const v = view.data;
 
@@ -52,6 +56,7 @@ export function BudgetEditPage() {
   };
 
   const submit = async (kind: 'IN' | 'EXPENSE') => {
+    if (historical) return;
     if (submittingRef.current) return;
     if (!amount || Number(amount) <= 0) {
       setMsg('请先填写金额');
@@ -128,6 +133,8 @@ export function BudgetEditPage() {
         </div>
       </div>
 
+      <BookkeepingScopeNotice month={month} />
+      {!historical && <>
       <div
         className={`swipe-card fill ${cardCls}`}
         style={{ transform: `translateX(${drag}px)`, transition: dragging ? 'none' : undefined }}
@@ -201,6 +208,7 @@ export function BudgetEditPage() {
         </button>
       )}
       {msg && <div className="muted mt">{msg}</div>}
+      </>}
     </div>
   );
 }

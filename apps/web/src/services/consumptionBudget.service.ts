@@ -5,6 +5,7 @@ import {
   VIRTUAL_CONSUMPTION_CARD_ID,
 } from '../domain/consumption';
 import { fromCents, toCents, type Cents } from '../domain/money';
+import { assertActiveMonth, getBookkeepingStart, isActiveConsumption } from './bookkeepingScope';
 
 function prevMonth(month: string): string {
   const [year, value] = month.split('-').map(Number);
@@ -13,26 +14,28 @@ function prevMonth(month: string): string {
 }
 
 async function monthlyTotals(upTo: string) {
-  const [budgets, excessRows, transactions] = await Promise.all([
+  const [budgets, excessRows, transactions, start] = await Promise.all([
     db.consumptionBudgets.toArray(),
     db.savingsEntries.where('kind').equals('EXCESS').toArray(),
     db.transactions.where('cardId').equals(VIRTUAL_CONSUMPTION_CARD_ID).toArray(),
+    getBookkeepingStart(),
   ]);
+  const startMonth = start?.startDate.slice(0, 7);
   const budgetByMonth = new Map<string, Cents>();
   for (const row of budgets) {
-    if (row.month <= upTo) {
+    if (row.month <= upTo && (!startMonth || row.month >= startMonth)) {
       budgetByMonth.set(row.month, (budgetByMonth.get(row.month) ?? 0) + row.amount);
     }
   }
   const excessByMonth = new Map<string, Cents>();
   for (const row of excessRows) {
-    if (row.month <= upTo) {
+    if (row.month <= upTo && (!startMonth || row.month >= startMonth)) {
       excessByMonth.set(row.month, (excessByMonth.get(row.month) ?? 0) + row.amount);
     }
   }
   const spentByMonth = new Map<string, Cents>();
   for (const row of transactions) {
-    if (row.type !== 'OUT') continue;
+    if (row.type !== 'OUT' || !isActiveConsumption(row, start)) continue;
     const month = row.date.slice(0, 7);
     if (month <= upTo) {
       spentByMonth.set(month, (spentByMonth.get(month) ?? 0) + -row.amount);
@@ -87,6 +90,8 @@ export interface ConsumptionFundingView {
 export const consumptionBudgetService = {
   /** A savings card's exact-month contribution; missing values stay empty in the editor. */
   async contribution(savingsCardId: string, month: string): Promise<string> {
+    const start = await getBookkeepingStart();
+    if (start && month < start.startDate.slice(0, 7)) return '';
     const row = await db.consumptionBudgets
       .where('[savingsCardId+month]')
       .equals([savingsCardId, month])
@@ -96,6 +101,7 @@ export const consumptionBudgetService = {
 
   /** Replace a savings card's exact-month contribution; zero removes it. */
   async setBudget(input: { savingsCardId: string; month: string; amount: string }): Promise<void> {
+    await assertActiveMonth(input.month);
     const amount = toCents(input.amount || '0');
     const existing = await db.consumptionBudgets
       .where('[savingsCardId+month]')
@@ -121,27 +127,33 @@ export const consumptionBudgetService = {
 
   /** Global monthly quota = sum of every savings card's contribution for this exact month. */
   async quotaFor(month: string): Promise<Cents> {
+    const start = await getBookkeepingStart();
+    if (start && month < start.startDate.slice(0, 7)) return 0;
     const rows = await db.consumptionBudgets.where('month').equals(month).toArray();
     return rows.reduce((sum, row) => sum + row.amount, 0);
   },
 
   /** Global monthly excess recharge, without card weighting or cross-month fallback. */
   async excessFor(month: string): Promise<Cents> {
+    const start = await getBookkeepingStart();
+    if (start && month < start.startDate.slice(0, 7)) return 0;
     const rows = await db.savingsEntries.where('kind').equals('EXCESS').toArray();
     return rows.filter((row) => row.month === month).reduce((sum, row) => sum + row.amount, 0);
   },
 
   /** Saved funding and the single globally allocated carry pool for a month. */
   async fundingForMonth(month: string): Promise<ConsumptionFundingView> {
-    const [cards, budgets, prepaidText] = await Promise.all([
+    const [cards, budgets, prepaidText, start] = await Promise.all([
       db.cards.toArray(),
       db.consumptionBudgets.where('month').equals(month).toArray(),
       this.bufferBefore(month),
+      getBookkeepingStart(),
     ]);
     const savings = cards
       .filter((card) => card.type === 'SAVINGS')
       .sort((a, b) => a.sortOrder - b.sortOrder || a.createdAt - b.createdAt);
-    const bySavings = new Map(budgets.map((row) => [row.savingsCardId, row.amount]));
+    const activeBudgets = start && month < start.startDate.slice(0, 7) ? [] : budgets;
+    const bySavings = new Map(activeBudgets.map((row) => [row.savingsCardId, row.amount]));
     const allocations = allocateCarry(
       savings.map((card) => ({ savingsCardId: card.id, budget: bySavings.get(card.id) ?? 0 })),
       toCents(prepaidText),

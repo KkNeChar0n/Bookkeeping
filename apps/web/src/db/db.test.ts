@@ -5,6 +5,58 @@ import Dexie from 'dexie';
 import { BookkeepingDB } from './db';
 import { VIRTUAL_CONSUMPTION_CARD_ID } from '../domain/consumption';
 
+test('v23 only adds restart tables and preserves existing ledger amounts without starting a new ledger', async () => {
+  const name = `bookkeeping-restart-migration-${crypto.randomUUID()}`;
+  const legacy = new Dexie(name);
+  legacy.version(22).stores({
+    cards: 'id, sortOrder, isDefault, type',
+    budgetSnapshots: 'id, &date',
+    budgetLines: 'id, &[snapshotId+cardId], snapshotId, cardId',
+    transactions: 'id, cardId, date, type, transferGroupId, [cardId+date]',
+    budgetDetails: 'id, cardId, [cardId+month]',
+    savingsActuals: 'id, &[cardId+month], cardId',
+    categories: 'id, kind',
+    savingsEntries: 'id, cardId, [cardId+month], kind',
+    savingsLogs: 'id, cardId, [cardId+month], createdAt',
+    initialBalanceLogs: 'id, cardId, [cardId+createdAt], createdAt',
+    consumptionBudgets: 'id, &[savingsCardId+month], month',
+    fundSavingsSnapshots: '&month',
+  });
+  await legacy.open();
+  const card = {
+    id: 's', name: '已有卡', type: 'SAVINGS', initialBalance: 100_001,
+    isDefault: 1, sortOrder: 1, createdAt: 1,
+  };
+  const transaction = {
+    id: 'expense', cardId: 's', date: '2026-09-01', type: 'OUT', amount: -123,
+    category: '餐饮', note: '历史', peerCardId: null, transferGroupId: null, createdAt: 1,
+  };
+  const fund = { month: '2026-09', marketValue: 20_000, prepaid: 500, netInvestment: 100, updatedAt: 1 };
+  await legacy.table('cards').add(card);
+  await legacy.table('transactions').add(transaction);
+  await legacy.table('fundSavingsSnapshots').add(fund);
+  legacy.close();
+
+  const upgraded = new BookkeepingDB(name);
+  try {
+    await upgraded.open();
+    assert.equal(upgraded.verno, 23);
+    assert.equal(await upgraded.bookkeepingStart.count(), 0);
+    assert.equal(await upgraded.ledgerArchives.count(), 0);
+    assert.deepEqual(await upgraded.cards.get('s'), card);
+    assert.deepEqual(await upgraded.transactions.get('expense'), transaction);
+    assert.deepEqual(await upgraded.fundSavingsSnapshots.get('2026-09'), fund);
+    await upgraded.bookkeepingStart.put({
+      id: 'active', startDate: '2026-10-14', createdAt: 10,
+      openingFundPrepaid: 500, openingFundMarketValue: 20_000,
+      openingSavings: [{ cardId: 's', amount: 100_001 }],
+    });
+    upgraded.close();
+    await upgraded.open();
+    assert.equal((await upgraded.bookkeepingStart.get('active'))?.openingFundPrepaid, 500);
+  } finally { upgraded.close(); await Dexie.delete(name); }
+});
+
 test('v9 migration merges legacy spend cards transactionally', async () => {
   const name = `bookkeeping-migration-${crypto.randomUUID()}`;
   const legacy = new Dexie(name);

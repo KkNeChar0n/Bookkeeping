@@ -1,5 +1,6 @@
 import { db, newId, nowTs, type BudgetDetailRow } from '../db/db';
 import { fromCents, toCents, type Cents } from '../domain/money';
+import { assertActiveMonth, getBookkeepingStart } from './bookkeepingScope';
 
 export type BudgetKind = 'IN' | 'OUT' | 'EXPENSE' | 'TRANSFER_IN';
 
@@ -43,17 +44,22 @@ async function initialOf(cardId: string): Promise<Cents> {
 export const budgetPlanService = {
   /** 某储蓄卡按月的预算细节 + 滚动预期余额；extraMonths 用于展示尚无细节的空月份 */
   async months(cardId: string, extraMonths: string[] = []): Promise<BudgetMonthDTO[]> {
-    const [rows, initial] = await Promise.all([
+    const [rows, initial, start] = await Promise.all([
       db.budgetDetails.where('cardId').equals(cardId).toArray(),
       initialOf(cardId),
+      getBookkeepingStart(),
     ]);
+    const startMonth = start?.startDate.slice(0, 7);
     const byMonth = new Map<string, BudgetDetailRow[]>();
     for (const r of rows) {
+      if (startMonth && r.month < startMonth) continue;
       const arr = byMonth.get(r.month) ?? [];
       arr.push(r);
       byMonth.set(r.month, arr);
     }
-    for (const m of extraMonths) if (!byMonth.has(m)) byMonth.set(m, []);
+    for (const m of extraMonths) {
+      if ((!startMonth || m >= startMonth) && !byMonth.has(m)) byMonth.set(m, []);
+    }
 
     const months = [...byMonth.keys()].sort();
     let running = initial;
@@ -79,6 +85,7 @@ export const budgetPlanService = {
     kind: BudgetKind;
     amount: string;
   }): Promise<void> {
+    await assertActiveMonth(input.month);
     const amt = toCents(input.amount);
     if (amt <= 0) throw new Error('金额必须为正');
     const defLabel =
@@ -109,6 +116,7 @@ export const budgetPlanService = {
     amount: string;
     note?: string;
   }): Promise<void> {
+    await assertActiveMonth(input.month);
     if (!input.peerCardId) throw new Error('请选择对手储蓄卡');
     if (input.peerCardId === input.cardId) throw new Error('对手卡不能是自己');
     const amt = toCents(input.amount);
@@ -141,14 +149,22 @@ export const budgetPlanService = {
 
   /** 某储蓄卡某月的预期收入（只算 IN，不含调入） */
   async expectedIncome(cardId: string, month: string): Promise<Cents> {
+    const start = await getBookkeepingStart();
+    if (start && month < start.startDate.slice(0, 7)) return 0;
     const rows = await db.budgetDetails.where('[cardId+month]').equals([cardId, month]).toArray();
     return rows.filter((r) => r.kind === 'IN').reduce((s, r) => s + r.amount, 0);
   },
 
   /** 某储蓄卡「截至某月」的累计预期收入（只算 IN） */
   async totalIncomeUpTo(cardId: string, month: string): Promise<Cents> {
-    const rows = await db.budgetDetails.where('cardId').equals(cardId).toArray();
-    return rows.filter((r) => r.kind === 'IN' && r.month <= month).reduce((s, r) => s + r.amount, 0);
+    const [rows, start] = await Promise.all([
+      db.budgetDetails.where('cardId').equals(cardId).toArray(),
+      getBookkeepingStart(),
+    ]);
+    const startMonth = start?.startDate.slice(0, 7);
+    return rows
+      .filter((r) => r.kind === 'IN' && r.month <= month && (!startMonth || r.month >= startMonth))
+      .reduce((s, r) => s + r.amount, 0);
   },
 
   async deleteDetail(id: string): Promise<void> {
@@ -196,13 +212,16 @@ export const budgetPlanService = {
    * 期初 + Σ(收入 + 调入 − 调出 − 支出)。支出会扣减（参与储蓄-预算）。
    */
   async expectedBalance(cardId: string, month: string): Promise<Cents> {
-    const [rows, initial] = await Promise.all([
+    const [rows, initial, start] = await Promise.all([
       db.budgetDetails.where('cardId').equals(cardId).toArray(),
       initialOf(cardId),
+      getBookkeepingStart(),
     ]);
+    const startMonth = start?.startDate.slice(0, 7);
+    if (startMonth && month < startMonth) return 0;
     let bal = initial;
     for (const r of rows) {
-      if (r.month > month) continue;
+      if (r.month > month || (startMonth && r.month < startMonth)) continue;
       bal += sign(r.kind) * r.amount; // 收入/调入 +，调出/支出 −
     }
     return bal;

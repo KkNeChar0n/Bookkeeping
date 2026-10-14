@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   useBudgetCurrentMonth,
+  useBookkeepingStart,
   useBudgetTransfer,
   useCards,
   useDeleteBudgetDetail,
@@ -10,6 +11,7 @@ import {
 } from '../api/hooks';
 import { addMonths, currentMonthStr, fmtDateTime, fmtMoney } from '../lib/format';
 import { useCardSlide } from '../lib/useCardSlide';
+import { BookkeepingScopeNotice } from '../components/BookkeepingScopeNotice';
 
 const KIND_LABEL: Record<'IN' | 'OUT' | 'EXPENSE' | 'TRANSFER_IN', string> = {
   IN: '收入',
@@ -29,6 +31,8 @@ export function BudgetCardPage() {
   const initialLogs = useInitialBalanceLogs(id);
 
   const [month, setMonth] = useState(currentMonthStr());
+  const start = useBookkeepingStart().data;
+  const historical = !!start && month < start.startDate.slice(0, 7);
   const view = useBudgetCurrentMonth(id, month);
   const v = view.data;
 
@@ -65,7 +69,7 @@ export function BudgetCardPage() {
           <span className="type-tag">预算</span>
         </div>
         <div className="detail-actions">
-          <button className="mini" onClick={editInitial}>
+          <button className="mini" onClick={editInitial} disabled={historical}>
             期初调整
           </button>
         </div>
@@ -93,6 +97,8 @@ export function BudgetCardPage() {
               ›
             </button>
           </div>
+          <BookkeepingScopeNotice month={month} />
+          {!historical && <>
           <div className="swipe-balance">
             <span className="muted">预期余额</span>
             <div className="big">{v ? fmtMoney(v.expected) : '—'}</div>
@@ -201,6 +207,7 @@ export function BudgetCardPage() {
               <div className="muted">还没有期初修改记录</div>
             )}
           </div>
+          </>}
 
           <div className="swipe-hint" style={{ paddingTop: 14 }}>
             ‹ 右滑上一月 · 左滑下一月 ›

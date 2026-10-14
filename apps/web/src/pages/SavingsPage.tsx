@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useCards, useSavingsList } from '../api/hooks';
 import { fmtMoney, fmtSigned } from '../lib/format';
 import type { Card } from '../api/types';
+import { BookkeepingScopeNotice } from '../components/BookkeepingScopeNotice';
 
 export function SavingsPage() {
   const cards = useCards();
@@ -16,6 +17,7 @@ export function SavingsPage() {
   return (
     <div>
       <h1 className="page-title">储蓄</h1>
+      <BookkeepingScopeNotice />
       <div className="muted date-hint" style={{ textAlign: 'left', marginBottom: 12 }}>
         每月给每张储蓄卡填写真实余额；卡片之间移动资金后，直接更新各卡余额即可。
       </div>

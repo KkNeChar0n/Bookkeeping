@@ -5,6 +5,20 @@ import type { BackupData } from './backup.service';
 import { backupService, normalizeBackupData } from './backup.service';
 import { VIRTUAL_CONSUMPTION_CARD_ID } from '../domain/consumption';
 import { db } from '../db/db';
+import type { BookkeepingStartRow, LedgerArchiveRow } from '../db/db';
+
+const bookkeepingStart: BookkeepingStartRow = {
+  id: 'active', startDate: '2026-10-14', createdAt: 10,
+  openingFundPrepaid: 1_000, openingFundMarketValue: 5_000,
+  openingSavings: [{ cardId: 's', amount: 10_000 }],
+};
+const ledgerArchive: LedgerArchiveRow = {
+  id: 'archive-one', startDate: '2026-10-14', createdAt: 10,
+  backup: JSON.stringify({
+    app: 'bookkeeping', version: 14, exportedAt: '2026-10-14T00:00:00.000Z',
+    cards: [], budgetSnapshots: [], budgetLines: [], transactions: [],
+  }),
+};
 
 const source: BackupData = {
   app: 'bookkeeping',
@@ -94,7 +108,9 @@ test('legacy backup becomes one virtual account and avoids v8 quota double count
   assert.deepEqual(result.initialBalanceLogs, []);
   assert.equal('assetTransfers' in result, false);
   assert.equal('fundPrincipalLogs' in result, false);
-  assert.equal(result.version, 14);
+  assert.equal(result.version, 15);
+  assert.equal(result.bookkeepingStart, null);
+  assert.deepEqual(result.ledgerArchives, []);
   assert.deepEqual(result.fundSavingsSnapshots, []);
   assert.equal('fundMonthSnapshots' in result, false);
   assert.equal('fundContributions' in result, false);
@@ -247,7 +263,7 @@ test('v9 backup normalization restores source snapshot deducted by asset transfe
     ],
   });
 
-  assert.equal(result.version, 14);
+  assert.equal(result.version, 15);
   assert.equal(result.savingsActuals?.find((row) => row.cardId === 'postal')?.amount, 10_212_585);
   assert.equal(result.savingsActuals?.find((row) => row.cardId === 'fund-card')?.amount, 324_500);
   assert.equal('assetTransfers' in result, false);
@@ -366,7 +382,7 @@ test('v11 backup aggregates monthly market values, keeps latest duplicates, and 
   );
 });
 
-test('v14 export/import round-trips signed net investment and reconciliation markers', async () => {
+test('v15 export/import round-trips signed net investment and reconciliation markers', async () => {
   db.close();
   await db.delete();
   await db.open();
@@ -398,7 +414,7 @@ test('v14 export/import round-trips signed net investment and reconciliation mar
   ]);
 
   const result = await backupService.exportAll();
-  assert.equal(result.version, 14);
+  assert.equal(result.version, 15);
   assert.equal('assetTransfers' in result, false);
   assert.equal('fundPrincipalLogs' in result, false);
   assert.equal('fundMonthSnapshots' in result, false);
@@ -867,8 +883,13 @@ test('clearing non-fund data preserves fund balances and unknown market marker o
       updatedAt: 2,
     },
   ]);
+  await db.bookkeepingStart.put(bookkeepingStart);
+  await db.ledgerArchives.put(ledgerArchive);
 
   await backupService.clearAllExceptFund();
+
+  assert.equal(await db.bookkeepingStart.count(), 0);
+  assert.equal(await db.ledgerArchives.count(), 0);
 
   assert.deepEqual(await db.fundSavingsSnapshots.toArray(), [
     {
@@ -893,4 +914,151 @@ test('clearing non-fund data preserves fund balances and unknown market marker o
 
   db.close();
   await db.delete();
+});
+
+test('v15 backup preserves the start, archive and strict consumption archive flag', async () => {
+  db.close();
+  await db.delete();
+  await db.open();
+  try {
+    const input: BackupData = {
+      ...source,
+      version: 15,
+      bookkeepingStart,
+      ledgerArchives: [ledgerArchive],
+      transactions: source.transactions.map((row) => ({ ...row, archivedForReconciliation: true })),
+    };
+    await backupService.importAll(input);
+    const exported = await backupService.exportAll();
+    assert.equal(exported.version, 15);
+    assert.deepEqual(exported.bookkeepingStart, bookkeepingStart);
+    assert.deepEqual(exported.ledgerArchives, [ledgerArchive]);
+    assert.equal(exported.transactions[0].archivedForReconciliation, true);
+    await backupService.importAll(exported);
+    assert.deepEqual(await db.bookkeepingStart.get('active'), bookkeepingStart);
+    assert.deepEqual(await db.ledgerArchives.toArray(), [ledgerArchive]);
+    assert.equal((await db.transactions.get('t'))?.archivedForReconciliation, true);
+
+    const sanitized = normalizeBackupData({
+      ...input,
+      transactions: input.transactions.map((row) => ({ ...row, archivedForReconciliation: 'true' })),
+    } as unknown as BackupData);
+    assert.equal('archivedForReconciliation' in sanitized.transactions[0], false);
+  } finally { db.close(); await db.delete(); }
+});
+
+test('importing an old backup clears the previous start and archives', async () => {
+  db.close();
+  await db.delete();
+  await db.open();
+  try {
+    await db.bookkeepingStart.put(bookkeepingStart);
+    await db.ledgerArchives.put(ledgerArchive);
+    await backupService.importAll(source);
+    assert.equal(await db.bookkeepingStart.count(), 0);
+    assert.equal(await db.ledgerArchives.count(), 0);
+    assert.equal((await backupService.exportAll()).bookkeepingStart, null);
+  } finally { db.close(); await db.delete(); }
+});
+
+test('damaged restart metadata is rejected before any existing ledger data is replaced', async () => {
+  db.close();
+  await db.delete();
+  await db.open();
+  try {
+    await db.bookkeepingStart.put(bookkeepingStart);
+    const before = await backupService.exportAll();
+    for (const patch of [
+      { startDate: '2026-02-30' },
+      { id: 'other' },
+      { openingFundPrepaid: -1 },
+      { openingFundMarketValue: Number.MAX_SAFE_INTEGER + 1 },
+      { openingSavings: [{ cardId: 's', amount: 1 }, { cardId: 's', amount: 2 }] },
+      { openingSavings: [{ cardId: '', amount: 1 }] },
+      { openingSavings: [{ cardId: 's', amount: 0.5 }] },
+      { createdAt: NaN },
+      { manualOpening: false },
+      { manualOpening: 'true' },
+      { fundOpeningConfirmed: true },
+      { manualOpening: true, fundOpeningConfirmed: 'true' },
+      { manualOpening: true, fundOpeningConfirmed: false },
+      { manualOpening: true, startDate: '2026-10-01' },
+    ]) {
+      await assert.rejects(
+        backupService.importAll({ ...source, bookkeepingStart: { ...bookkeepingStart, ...patch } } as BackupData),
+        /起账/,
+      );
+    }
+    const after = await backupService.exportAll();
+    assert.deepEqual({ ...after, exportedAt: '' }, { ...before, exportedAt: '' });
+  } finally { db.close(); await db.delete(); }
+});
+
+test('manual opening mode and the confirmed fixed fund baseline survive normalization', () => {
+  const manualStart: BookkeepingStartRow = {
+    ...bookkeepingStart,
+    startDate: '2026-10-01',
+    manualOpening: true,
+    fundOpeningConfirmed: true,
+    openingSavings: [],
+  };
+  assert.deepEqual(normalizeBackupData({
+    ...source, bookkeepingStart: manualStart,
+    fundSavingsSnapshots: [{ month: '2026-10', marketValue: 5_000, prepaid: 1_000, netInvestment: 0, updatedAt: 1 }],
+  }).bookkeepingStart, manualStart);
+  const unconfirmed = { ...manualStart, fundOpeningConfirmed: false, openingFundMarketValue: 0, openingFundPrepaid: 0 };
+  assert.deepEqual(normalizeBackupData({ ...source, bookkeepingStart: unconfirmed }).bookkeepingStart, unconfirmed);
+});
+
+test('a damaged confirmed manual fund opening is rejected before replacing the active ledger', async () => {
+  db.close();
+  await db.delete();
+  await db.open();
+  try {
+    await db.bookkeepingStart.put(bookkeepingStart);
+    const before = await backupService.exportAll();
+    const confirmed: BookkeepingStartRow = {
+      ...bookkeepingStart, startDate: '2026-10-01', manualOpening: true, fundOpeningConfirmed: true,
+      openingSavings: [],
+    };
+    for (const fundSavingsSnapshots of [
+      undefined,
+      [],
+      [{ month: '2026-11', marketValue: 5_000, prepaid: 1_000, netInvestment: 0, updatedAt: 1 }],
+      [{ month: '2026-10', marketValue: -1, prepaid: 1_000, netInvestment: 0, updatedAt: 1 }],
+    ]) {
+      await assert.rejects(backupService.importAll({
+        ...source, bookkeepingStart: confirmed, fundSavingsSnapshots,
+      }), /基金开账/);
+      const after = await backupService.exportAll();
+      assert.deepEqual({ ...after, exportedAt: '' }, { ...before, exportedAt: '' });
+    }
+  } finally { db.close(); await db.delete(); }
+});
+
+test('archive validation rejects duplicate, damaged and recursively nested archives', () => {
+  for (const archives of [
+    [ledgerArchive, ledgerArchive],
+    [{ ...ledgerArchive, backup: 'broken json' }],
+    [{ ...ledgerArchive, startDate: '2026-13-01' }],
+    [{ ...ledgerArchive, backup: JSON.stringify({ app: 'other', cards: [], transactions: [] }) }],
+    [{ ...ledgerArchive, backup: JSON.stringify({
+      app: 'bookkeeping', cards: [], transactions: [], ledgerArchives: [ledgerArchive],
+    }) }],
+  ]) {
+    assert.throws(() => normalizeBackupData({ ...source, ledgerArchives: archives }), /归档/);
+  }
+  const previousStart = { ...bookkeepingStart, startDate: '2026-09-01' };
+  const archived = {
+    ...ledgerArchive,
+    backup: JSON.stringify({ ...source, bookkeepingStart: previousStart, ledgerArchives: [] }),
+  };
+  const normalized = normalizeBackupData({ ...source, bookkeepingStart, ledgerArchives: [archived] });
+  assert.deepEqual(normalized.ledgerArchives, [archived]);
+  assert.deepEqual(normalized.bookkeepingStart, bookkeepingStart);
+  // A deleted card's opening snapshot remains useful audit history and must survive normalization.
+  assert.deepEqual(normalizeBackupData({
+    ...source,
+    bookkeepingStart: { ...bookkeepingStart, openingSavings: [{ cardId: 'deleted', amount: 5 }] },
+  }).bookkeepingStart?.openingSavings, [{ cardId: 'deleted', amount: 5 }]);
 });

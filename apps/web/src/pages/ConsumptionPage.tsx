@@ -11,6 +11,7 @@ import {
 import type { Transaction } from '../api/types';
 import { VIRTUAL_CONSUMPTION_CARD_ID } from '../domain/consumption';
 import { fmtMoney, todayStr } from '../lib/format';
+import { BookkeepingScopeNotice } from '../components/BookkeepingScopeNotice';
 
 const stop = (event: React.PointerEvent) => event.stopPropagation();
 
@@ -88,6 +89,8 @@ export function ConsumptionPage() {
   };
 
   const current = view.data;
+  const historicalDate = !!current?.startDate && date < current.startDate;
+  const historicalView = !!current?.historicalOnly || historicalDate;
   const remaining = Number(current?.remaining ?? 0);
   const rows = (transactions.data ?? []).filter((row) => row.date === date);
 
@@ -98,6 +101,7 @@ export function ConsumptionPage() {
         <h1 className="page-title" style={{ margin: 0 }}>消费详情</h1>
         <span style={{ width: 40 }} />
       </div>
+      <BookkeepingScopeNotice month={month} date={date} consumption />
       <div
         className={`swipe-card ${armed ? 'expense' : ''}`}
         style={{ transform: `translateX(${drag}px)` }}
@@ -111,20 +115,25 @@ export function ConsumptionPage() {
             <label>记账日期（额度按所选日期的月份）</label>
             <input type="date" value={date} onChange={(event) => setDate(event.target.value)} />
           </div>
-          <div className="muted mt" style={{ fontSize: 12 }}>
+          {!historicalView && <div className="muted mt" style={{ fontSize: 12 }}>
             {month} 全局消费额度 {current?.hasQuota ? fmtMoney(current.quota) : '未设'} · 来自当月所有储蓄卡预算之和
-          </div>
+          </div>}
         </div>
 
         <div className="divider" />
+        {historicalView ? (
+          <div className="swipe-balance"><span className="muted">该月全部消费</span><div className="big">{fmtMoney(current?.totalSpent ?? '0')}</div><div className="muted">所选日期属于历史范围，补录只供查询，不计算新账额度和超支。</div></div>
+        ) : <>
         <div className="swipe-balance">
-          <span className="muted">本月剩余</span>
+          <span className="muted">{current?.startDate ? '新账本月剩余' : '本月剩余'}</span>
           <div className={`big ${remaining < 0 ? 'neg' : ''}`}>{fmtMoney(remaining)}</div>
           <div className="muted">
             预算 {current?.hasQuota ? fmtMoney(current.quota) : '未设'} · 超额充值 {fmtMoney(current?.excess ?? '0')} · 已消费 {fmtMoney(current?.spent ?? '0')}
             {Number(current?.overspend ?? 0) > 0 ? ` · 超支 ${fmtMoney(current?.overspend ?? '0')}` : ''}
           </div>
+          {current?.startDate && current.totalSpent !== current.spent && <div className="meta mt">全月消费（含历史）{fmtMoney(current.totalSpent ?? current.spent)}；此处“已消费”仅含新账部分。</div>}
         </div>
+        </>}
 
         {armed && (
           <div className="swipe-form" onPointerDown={stop}>

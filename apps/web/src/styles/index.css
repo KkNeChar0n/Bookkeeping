@@ -546,6 +546,23 @@ td:first-child {
   font-size: 13px;
   color: var(--text-dim);
 }
+.interest-change > summary {
+  cursor: pointer;
+  list-style: none;
+  gap: 12px;
+}
+.interest-change > summary::-webkit-details-marker {
+  display: none;
+}
+.interest-change .disclosure-arrow {
+  display: inline-block;
+}
+.interest-change[open] .disclosure-arrow {
+  transform: rotate(90deg);
+}
+.interest-change .cat-items {
+  padding-bottom: 8px;
+}
 
 /* ---- 消费分类统计条 ---- */
 .cat-row {

@@ -2,6 +2,7 @@ import { db } from '../db/db';
 import { consumptionMonthTotals, VIRTUAL_CONSUMPTION_CARD_ID } from '../domain/consumption';
 import { fromCents, type Cents } from '../domain/money';
 import { consumptionBudgetService } from './consumptionBudget.service';
+import { getBookkeepingStart, isActiveConsumption } from './bookkeepingScope';
 
 export interface SpendMonthView {
   month: string;
@@ -12,26 +13,29 @@ export interface SpendMonthView {
   remaining: string;
   overspend: string;
   overspent: boolean;
+  /** 启用重新起账后，全部消费含仅供查询的历史消费。 */
+  totalSpent?: string;
+  historicalOnly?: boolean;
+  startDate?: string;
 }
 
 export interface SpendPeriodView extends SpendMonthView {
   months: SpendMonthView[];
 }
 
-async function spentInMonth(month: string): Promise<Cents> {
-  const rows = await db.transactions.where('cardId').equals(VIRTUAL_CONSUMPTION_CARD_ID).toArray();
-  return rows
-    .filter((row) => row.type === 'OUT' && row.date.slice(0, 7) === month)
-    .reduce((sum, row) => sum + -row.amount, 0);
-}
-
 export const spendService = {
   async monthView(month: string): Promise<SpendMonthView> {
-    const [quota, excess, spent] = await Promise.all([
+    const [quota, excess, transactions, start] = await Promise.all([
       consumptionBudgetService.quotaFor(month),
       consumptionBudgetService.excessFor(month),
-      spentInMonth(month),
+      db.transactions.where('cardId').equals(VIRTUAL_CONSUMPTION_CARD_ID).toArray(),
+      getBookkeepingStart(),
     ]);
+    const monthly = transactions.filter((row) => row.type === 'OUT' && row.date.slice(0, 7) === month);
+    const totalSpent = monthly.reduce((sum, row) => sum + -row.amount, 0);
+    const spent: Cents = monthly
+      .filter((row) => isActiveConsumption(row, start))
+      .reduce((sum, row) => sum + -row.amount, 0);
     const totals = consumptionMonthTotals({ budget: quota, excess, spent });
     return {
       month,
@@ -42,6 +46,11 @@ export const spendService = {
       remaining: fromCents(totals.remaining),
       overspend: fromCents(totals.overspend),
       overspent: totals.overspend > 0,
+      ...(start ? {
+        totalSpent: fromCents(totalSpent),
+        historicalOnly: month < start.startDate.slice(0, 7),
+        startDate: start.startDate,
+      } : {}),
     };
   },
 
@@ -59,6 +68,7 @@ export const spendService = {
     const sum = (field: 'quota' | 'spent' | 'excess' | 'remaining' | 'overspend') =>
       rows.reduce((total, row) => total + Number(row[field]), 0);
     const overspend = sum('overspend');
+    const start = await getBookkeepingStart();
     return {
       month: prefix,
       quota: fromCents(Math.round(sum('quota') * 100)),
@@ -69,6 +79,11 @@ export const spendService = {
       overspend: fromCents(Math.round(overspend * 100)),
       overspent: overspend > 0,
       months: rows,
+      ...(start ? {
+        totalSpent: fromCents(rows.reduce((total, row) => total + Math.round(Number(row.totalSpent ?? row.spent) * 100), 0)),
+        historicalOnly: prefix < start.startDate.slice(0, 4),
+        startDate: start.startDate,
+      } : {}),
     };
   },
 };

@@ -3,6 +3,7 @@ import {
   type BudgetDetailRow,
   type BudgetLineRow,
   type BudgetSnapshotRow,
+  type BookkeepingStartRow,
   type CardRow,
   type CategoryRow,
   type ConsumptionBudgetRow,
@@ -12,6 +13,7 @@ import {
   type FundSavingsSnapshotRow,
   type LegacyFundContributionRow,
   type LegacyFundSnapshotRow,
+  type LedgerArchiveRow,
   type SavingsActualRow,
   type SavingsEntryRow,
   type SavingsLogRow,
@@ -59,6 +61,8 @@ export interface BackupData {
   fundContributions?: LegacyFundContributionRow[];
   fundSnapshots?: LegacyFundSnapshotRow[];
   consumptionBudgets?: LegacyConsumptionBudgetRow[];
+  bookkeepingStart?: BookkeepingStartRow | null;
+  ledgerArchives?: LedgerArchiveRow[];
 }
 
 export interface NormalizedBackupData extends Omit<
@@ -72,10 +76,86 @@ export interface NormalizedBackupData extends Omit<
   | 'fundPrincipalLogs'
   | 'fundMonthSnapshots'
   | 'fundSavingsSnapshots'
+  | 'bookkeepingStart'
+  | 'ledgerArchives'
 > {
   cards: CardRow[];
   consumptionBudgets: ConsumptionBudgetRow[];
   fundSavingsSnapshots: FundSavingsSnapshotRow[];
+  bookkeepingStart: BookkeepingStartRow | null;
+  ledgerArchives: LedgerArchiveRow[];
+}
+
+function isCalendarDate(value: unknown): value is string {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
+function isNonnegativeInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
+
+/** Never silently discard a damaged boundary: that could reactivate archived consumption. */
+function normalizeBookkeepingStart(value: unknown): BookkeepingStartRow | null {
+  if (value == null) return null;
+  if (typeof value !== 'object') throw new Error('备份中的起账信息不正确');
+  const row = value as BookkeepingStartRow;
+  if (
+    row.id !== 'active' ||
+    !isCalendarDate(row.startDate) ||
+    !isNonnegativeInteger(row.createdAt) ||
+    !isNonnegativeInteger(row.openingFundPrepaid) ||
+    !isNonnegativeInteger(row.openingFundMarketValue) ||
+    !Array.isArray(row.openingSavings) ||
+    (row.manualOpening !== undefined && row.manualOpening !== true) ||
+    (row.fundOpeningConfirmed !== undefined && typeof row.fundOpeningConfirmed !== 'boolean') ||
+    (row.fundOpeningConfirmed !== undefined && row.manualOpening !== true) ||
+    (row.manualOpening === true && (!row.startDate.endsWith('-01') || row.fundOpeningConfirmed === undefined))
+  ) throw new Error('备份中的起账信息不正确');
+  const ids = new Set<string>();
+  const openingSavings = row.openingSavings.map((entry) => {
+    if (
+      !entry || typeof entry.cardId !== 'string' || !entry.cardId.trim() ||
+      ids.has(entry.cardId) || !isNonnegativeInteger(entry.amount)
+    ) throw new Error('备份中的起账储蓄信息不正确');
+    ids.add(entry.cardId);
+    return { cardId: entry.cardId, amount: entry.amount };
+  });
+  return {
+    id: 'active', startDate: row.startDate, createdAt: row.createdAt,
+    openingFundPrepaid: row.openingFundPrepaid,
+    openingFundMarketValue: row.openingFundMarketValue,
+    openingSavings,
+    ...(row.manualOpening ? { manualOpening: true as const, fundOpeningConfirmed: row.fundOpeningConfirmed } : {}),
+  };
+}
+
+function normalizeLedgerArchives(value: unknown): LedgerArchiveRow[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) throw new Error('备份中的旧账归档不正确');
+  const ids = new Set<string>();
+  return value.map((entry: unknown) => {
+    if (!entry || typeof entry !== 'object') throw new Error('备份中的旧账归档不正确');
+    const row = entry as LedgerArchiveRow;
+    if (
+      typeof row.id !== 'string' || !row.id.trim() || ids.has(row.id) ||
+      !isNonnegativeInteger(row.createdAt) || !isCalendarDate(row.startDate) ||
+      typeof row.backup !== 'string'
+    ) throw new Error('备份中的旧账归档不正确');
+    let archived: BackupData;
+    try { archived = JSON.parse(row.backup) as BackupData; }
+    catch { throw new Error('备份中的旧账归档文件损坏'); }
+    if (
+      archived?.app !== 'bookkeeping' || !Array.isArray(archived.cards) ||
+      !Array.isArray(archived.transactions) ||
+      (archived.ledgerArchives !== undefined &&
+        (!Array.isArray(archived.ledgerArchives) || archived.ledgerArchives.length > 0))
+    ) throw new Error('备份中的旧账归档格式不正确或包含嵌套归档');
+    normalizeBookkeepingStart(archived.bookkeepingStart);
+    ids.add(row.id);
+    return { id: row.id, createdAt: row.createdAt, startDate: row.startDate, backup: row.backup };
+  });
 }
 
 function virtualCard(): CardRow {
@@ -92,6 +172,8 @@ function virtualCard(): CardRow {
 
 /** Normalize old backups before writing them into the already-upgraded database. */
 export function normalizeBackupData(data: BackupData): NormalizedBackupData {
+  const bookkeepingStart = normalizeBookkeepingStart(data.bookkeepingStart);
+  const ledgerArchives = normalizeLedgerArchives(data.ledgerArchives);
   const oldSpendIds = new Set(
     data.cards.filter((card) => card.type === 'SPEND').map((card) => card.id),
   );
@@ -142,16 +224,20 @@ export function normalizeBackupData(data: BackupData): NormalizedBackupData {
 
   const normalized = {
     app: 'bookkeeping' as const,
-    version: 14,
+    version: 15,
     exportedAt: data.exportedAt,
     cards: [...data.cards.filter((card) => card.type !== 'SPEND'), virtualCard()],
     budgetSnapshots: data.budgetSnapshots ?? [],
     budgetLines: data.budgetLines ?? [],
-    transactions: (data.transactions ?? []).map((row) =>
-      oldSpendIds.has(row.cardId) && row.cardId !== VIRTUAL_CONSUMPTION_CARD_ID
-        ? { ...row, cardId: VIRTUAL_CONSUMPTION_CARD_ID }
-        : row,
-    ),
+    transactions: (data.transactions ?? []).map((row) => {
+      const { archivedForReconciliation, ...transaction } = row;
+      return {
+        ...transaction,
+        ...(oldSpendIds.has(row.cardId) && row.cardId !== VIRTUAL_CONSUMPTION_CARD_ID
+          ? { cardId: VIRTUAL_CONSUMPTION_CARD_ID } : {}),
+        ...(archivedForReconciliation === true ? { archivedForReconciliation: true } : {}),
+      };
+    }),
     budgetDetails: data.budgetDetails ?? [],
     savingsActuals: data.savingsActuals ?? [],
     categories: data.categories ?? [],
@@ -298,6 +384,12 @@ export function normalizeBackupData(data: BackupData): NormalizedBackupData {
         exportedMonth,
         exportedAt,
       );
+  if (
+    bookkeepingStart?.manualOpening && bookkeepingStart.fundOpeningConfirmed &&
+    !fundSavingsSnapshots.some((row) => row.month === bookkeepingStart.startDate.slice(0, 7))
+  ) {
+    throw new Error('备份中的基金开账已确认，但起账月份的基金记录缺失或损坏');
+  }
   const finalCards = cards.filter((card) => card.type !== 'FUND');
   const preliminary = {
     budgetLines: keep(normalized.budgetLines, plan.budgetLineIds),
@@ -318,7 +410,7 @@ export function normalizeBackupData(data: BackupData): NormalizedBackupData {
   });
   return {
     app: 'bookkeeping',
-    version: 14,
+    version: 15,
     exportedAt: data.exportedAt,
     cards: finalCards,
     budgetSnapshots: normalized.budgetSnapshots,
@@ -332,6 +424,8 @@ export function normalizeBackupData(data: BackupData): NormalizedBackupData {
     initialBalanceLogs: keep(preliminary.initialBalanceLogs, finalPlan.initialBalanceLogIds),
     consumptionBudgets: keep(preliminary.consumptionBudgets, finalPlan.consumptionBudgetIds),
     fundSavingsSnapshots,
+    bookkeepingStart,
+    ledgerArchives,
   };
 }
 
@@ -350,6 +444,8 @@ export const backupService = {
       initialBalanceLogs,
       consumptionBudgets,
       fundSavingsSnapshots,
+      bookkeepingStart,
+      ledgerArchives,
     ] = await Promise.all([
       db.cards.toArray(),
       db.budgetSnapshots.toArray(),
@@ -363,10 +459,12 @@ export const backupService = {
       db.initialBalanceLogs.toArray(),
       db.consumptionBudgets.toArray(),
       db.fundSavingsSnapshots.toArray(),
+      db.bookkeepingStart.get('active'),
+      db.ledgerArchives.toArray(),
     ]);
     return {
       app: 'bookkeeping',
-      version: 14,
+      version: 15,
       exportedAt: new Date().toISOString(),
       cards,
       budgetSnapshots,
@@ -380,6 +478,8 @@ export const backupService = {
       initialBalanceLogs,
       consumptionBudgets,
       fundSavingsSnapshots,
+      bookkeepingStart: bookkeepingStart ?? null,
+      ledgerArchives,
     };
   },
 
@@ -417,6 +517,8 @@ export const backupService = {
         db.initialBalanceLogs,
         db.consumptionBudgets,
         db.fundSavingsSnapshots,
+        db.bookkeepingStart,
+        db.ledgerArchives,
       ],
       async () => {
         await Promise.all([
@@ -432,6 +534,8 @@ export const backupService = {
           db.initialBalanceLogs.clear(),
           db.consumptionBudgets.clear(),
           db.fundSavingsSnapshots.clear(),
+          db.bookkeepingStart.clear(),
+          db.ledgerArchives.clear(),
         ]);
         await db.cards.bulkAdd(data.cards);
         await db.budgetSnapshots.bulkAdd(data.budgetSnapshots);
@@ -445,6 +549,8 @@ export const backupService = {
         await db.initialBalanceLogs.bulkAdd(data.initialBalanceLogs ?? []);
         await db.consumptionBudgets.bulkAdd(data.consumptionBudgets);
         await db.fundSavingsSnapshots.bulkAdd(data.fundSavingsSnapshots);
+        if (data.bookkeepingStart) await db.bookkeepingStart.put(data.bookkeepingStart);
+        await db.ledgerArchives.bulkAdd(data.ledgerArchives);
       },
     );
     return {
@@ -473,6 +579,8 @@ export const backupService = {
         db.initialBalanceLogs,
         db.consumptionBudgets,
         db.fundSavingsSnapshots,
+        db.bookkeepingStart,
+        db.ledgerArchives,
       ],
       async () => {
         const removable = (await db.cards.toArray())
@@ -489,6 +597,8 @@ export const backupService = {
           db.savingsLogs.clear(),
           db.initialBalanceLogs.clear(),
           db.consumptionBudgets.clear(),
+          db.bookkeepingStart.clear(),
+          db.ledgerArchives.clear(),
           db.fundSavingsSnapshots.toCollection().modify((row) => {
             delete row.netInvestment;
             delete row.flowBaseline;

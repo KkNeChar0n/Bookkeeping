@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useBudgetCurrentMonth, useCards } from '../api/hooks';
+import { useBookkeepingStart, useBudgetCurrentMonth, useCards } from '../api/hooks';
 import { currentMonthStr, fmtMoney } from '../lib/format';
 import type { Card } from '../api/types';
+import { BookkeepingScopeNotice } from '../components/BookkeepingScopeNotice';
 
 export function BudgetPage() {
   const cards = useCards();
+  const manualOpening = !!useBookkeepingStart().data?.manualOpening;
   const savings = (cards.data ?? []).filter((c) => c.type === 'SAVINGS');
   const [openId, setOpenId] = useState<string | null>(null);
 
@@ -16,11 +18,14 @@ export function BudgetPage() {
   return (
     <div>
       <h1 className="page-title">预算</h1>
+      <BookkeepingScopeNotice />
       <div className="muted date-hint" style={{ textAlign: 'left', marginBottom: 4 }}>
         点开看本月预算，再点一次进入详情（左右滑切月、记收支）。
       </div>
       <div className="muted date-hint" style={{ textAlign: 'left', marginBottom: 12, fontSize: 12 }}>
-        预算为每月最后一天的存储金额
+        {manualOpening
+          ? '预算期初已包含基金份额；单卡预算不等于银行卡余额，请在统计中查看总资产对账。'
+          : '预算为每月最后一天的存储金额'}
       </div>
 
       {savings.length ? (

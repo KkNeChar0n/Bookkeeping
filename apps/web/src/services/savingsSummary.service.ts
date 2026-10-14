@@ -2,6 +2,7 @@ import { db } from '../db/db';
 import { budgetPlanService } from './budgetPlan.service';
 import { savingsActualService } from './savingsActual.service';
 import { fromCents } from '../domain/money';
+import { getBookkeepingStart } from './bookkeepingScope';
 
 export interface SavingsSummaryRow {
   cardId: string;
@@ -42,6 +43,8 @@ export const savingsSummaryService = {
 
   /** 截至 refMonth 的储蓄实际 vs 预期（受统计日期控制） */
   async listAsOf(refMonth: string): Promise<SavingsSummaryRow[]> {
+    const start = await getBookkeepingStart();
+    if (start && refMonth < start.startDate.slice(0, 7)) return [];
     const savings = (await db.cards.toArray())
       .filter((c) => c.type === 'SAVINGS')
       .sort((a, b) => a.sortOrder - b.sortOrder || a.createdAt - b.createdAt);

@@ -8,6 +8,7 @@ import {
 } from '../api/hooks';
 import { BackupPanel } from '../components/BackupPanel';
 import { CreateCardForm } from '../components/CreateCardForm';
+import { BookkeepingRestartPanel } from '../components/BookkeepingRestartPanel';
 
 export function SettingsPage() {
   const navigate = useNavigate();
@@ -34,6 +35,7 @@ export function SettingsPage() {
       <KindSection kind="income" title="收入类型" rows={income} />
       <KindSection kind="expense" title="支出类型" rows={expense} />
 
+      <BookkeepingRestartPanel />
       <BackupPanel />
     </div>
   );

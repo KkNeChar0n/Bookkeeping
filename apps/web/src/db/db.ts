@@ -47,6 +47,30 @@ export interface TransactionRow {
   peerCardId: string | null;
   transferGroupId: string | null;
   createdAt: number;
+  /** 历史消费标记；手工模式按月份边界划分，本月消费仍参与额度与超支。 */
+  archivedForReconciliation?: boolean;
+}
+
+/** 当前账本范围；手工模式 startDate 是消费月份边界，不代表月初资产已核实。 */
+export interface BookkeepingStartRow {
+  id: 'active';
+  startDate: string; // YYYY-MM-DD，本地起账日期
+  createdAt: number;
+  openingFundPrepaid: number;
+  openingFundMarketValue: number;
+  openingSavings: { cardId: string; amount: number }[];
+  /** 人工预算期初已包含基金市值和现金，不能再全额叠加基金。 */
+  manualOpening?: true;
+  /** 手工模式首次保存基金时单独确认固定的开账基金基准。 */
+  fundOpeningConfirmed?: boolean;
+}
+
+/** 起账前完整备份；backup 不嵌套其它归档，避免重复起账导致指数增长。 */
+export interface LedgerArchiveRow {
+  id: string;
+  createdAt: number;
+  startDate: string;
+  backup: string;
 }
 
 // 预算细节（储蓄卡·按月）：计划收入 / 调出 / 支出
@@ -213,6 +237,8 @@ export class BookkeepingDB extends Dexie {
   fundPrincipalLogs!: Table<FundPrincipalLogRow, string>;
   fundMonthSnapshots!: Table<FundMonthSnapshotRow, string>;
   fundSavingsSnapshots!: Table<FundSavingsSnapshotRow, string>;
+  bookkeepingStart!: Table<BookkeepingStartRow, string>;
+  ledgerArchives!: Table<LedgerArchiveRow, string>;
 
   constructor(name = 'bookkeeping') {
     super(name);
@@ -670,6 +696,12 @@ export class BookkeepingDB extends Dexie {
     this.version(22).stores({
       fundPrincipalLogs: null,
       fundMonthSnapshots: null,
+    });
+
+    // v23：只增加起账元数据和旧账归档，不自动修改或重新起账现有金额。
+    this.version(23).stores({
+      bookkeepingStart: 'id',
+      ledgerArchives: 'id, createdAt',
     });
 
     // Fresh installs skip upgrade callbacks, so seed the same internal account on populate.

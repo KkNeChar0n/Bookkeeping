@@ -4,6 +4,7 @@ import { useSpendMonth, useTransactions } from '../api/hooks';
 import { VIRTUAL_CONSUMPTION_CARD_ID } from '../domain/consumption';
 import { addDays, fmtDateCN, fmtMoney, todayStr } from '../lib/format';
 import { useCardSlide } from '../lib/useCardSlide';
+import { BookkeepingScopeNotice } from '../components/BookkeepingScopeNotice';
 
 /**
  * 记账首页只负责选择日期和查看摘要：左右滑动切日期，点击摘要后才进入左滑记账页。
@@ -23,6 +24,8 @@ export function DailyPage() {
   );
 
   const current = view.data;
+  const historicalDate = !!current?.startDate && date < current.startDate;
+  const historicalView = !!current?.historicalOnly || historicalDate;
   const remaining = Number(current?.remaining ?? 0);
   const rows = transactions.data ?? [];
 
@@ -46,11 +49,12 @@ export function DailyPage() {
         />
       </div>
       <div className="muted date-hint">点日期可选年月日 · 在卡片上左右滑动切换日期</div>
+      <BookkeepingScopeNotice month={date.slice(0, 7)} date={date} consumption />
 
       <div className="day-swipe" {...handlers} onClickCapture={onClickCapture}>
         <div className="day-slide" style={{ transform: `translateX(${drag}px)`, transition: instant ? 'none' : undefined }}>
           <div
-            className={`stack-item${current?.overspent ? ' over' : ''}`}
+            className={`stack-item${!historicalView && current?.overspent ? ' over' : ''}`}
             onClick={() => navigate(`/consume?date=${date}`)}
           >
             <div className="stack-head">
@@ -58,12 +62,17 @@ export function DailyPage() {
               <span style={{ color: 'var(--primary)' }}>›</span>
             </div>
             <div className="card-detail">
+              {historicalView ? (
+                <div className="kv"><span>该月全部消费</span><b>{fmtMoney(current?.totalSpent ?? '0')}</b></div>
+              ) : <>
               <div className="kv"><span>额度</span><span>{current?.hasQuota ? fmtMoney(current.quota) : '未设'}</span></div>
-              <div className="kv"><span>本月已消费</span><b>{fmtMoney(current?.spent ?? '0')}</b></div>
+              <div className="kv"><span>{current?.startDate ? '新账本月已消费' : '本月已消费'}</span><b>{fmtMoney(current?.spent ?? '0')}</b></div>
               <div className="kv"><span>本月剩余</span><b className={remaining < 0 ? 'neg' : 'pos'}>{fmtMoney(remaining)}</b></div>
               {Number(current?.overspend ?? 0) > 0 && (
                 <div className="kv"><span>超支</span><b className="neg">{fmtMoney(current?.overspend ?? '0')}</b></div>
               )}
+              {current?.startDate && current.totalSpent !== current.spent && <div className="meta">全月消费（含历史）{fmtMoney(current.totalSpent ?? current.spent)}；历史消费不占用新账额度。</div>}
+              </>}
             </div>
 
             <div className="divider" />

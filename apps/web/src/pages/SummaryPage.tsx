@@ -1,12 +1,14 @@
 import { useState } from 'react';
 import {
   useIncomeCompare,
+  useBookkeepingStart,
   useReconciliation,
   useSavingsSummaryAsOf,
   useSpendPeriod,
   useSpendStats,
 } from '../api/hooks';
 import { currentMonthStr, fmtMoney, fmtSigned } from '../lib/format';
+import { BookkeepingScopeNotice } from '../components/BookkeepingScopeNotice';
 
 export function SummaryPage() {
   const [mode, setMode] = useState<'month' | 'year'>('month');
@@ -34,6 +36,12 @@ export function SummaryPage() {
   const savings = savingsCmp.data ?? [];
   const inc = incomeCmp.data;
   const r = recon.data;
+  const start = useBookkeepingStart().data;
+  const manualOpening = !!start?.manualOpening;
+  const fundOpeningPending = manualOpening && !start?.fundOpeningConfirmed;
+  const openingMonth = !!start && refMonth === start.startDate.slice(0, 7);
+  const historical = !!start && refMonth < start.startDate.slice(0, 7);
+  const assetsAvailable = !historical && r?.reconciliationAvailable !== false;
 
   return (
     <div>
@@ -59,11 +67,14 @@ export function SummaryPage() {
             onChange={(e) => setYearVal(e.target.value)}
           />
         )}
+        <BookkeepingScopeNotice month={refMonth} />
 
         {/* 消费超支 */}
         <div className="divider" />
         <div className="detail-sub">消费 · 超支情况</div>
-        {spendView ? (
+        {spendView?.historicalOnly ? (
+          <div className="muted">历史消费合计 {fmtMoney(spendView.totalSpent ?? stats.data?.total ?? '0')}；旧消费不再参与新账额度和超支。</div>
+        ) : spendView ? (
           <>
             <div
               className="sum-row"
@@ -71,7 +82,7 @@ export function SummaryPage() {
               style={{ cursor: 'pointer' }}
             >
               <span>
-                全局消费
+                {spendView.startDate ? '新账消费' : '全局消费'}
                 <span className="meta">
                   {' '}
                   {mode === 'year' ? '期间额度' : '当月额度'}
@@ -88,6 +99,7 @@ export function SummaryPage() {
                 </span>
               )}
             </div>
+            {spendView.startDate && <div className="muted mt" style={{ fontSize: 12 }}>{manualOpening ? `额度与已花包含 ${spendView.startDate.slice(0, 7)} 起账月的全部消费，更早月份仅查询。` : `额度与已花只计算 ${spendView.startDate} 起账后的新账范围。`}下方分类统计仍包含所选期间全部历史消费。</div>}
             {showSpendMonths && (
               <div className="cat-items">
                 {spendView.months.map((row) => (
@@ -96,12 +108,11 @@ export function SummaryPage() {
                       {row.month}
                       <span className="meta">
                         {' '}
-                        额度 {row.hasQuota ? fmtMoney(row.quota) : '未设'} · 已花{' '}
-                        {fmtMoney(row.spent)}
+                        {row.historicalOnly ? `历史消费 ${fmtMoney(row.totalSpent ?? '0')}` : <>额度 {row.hasQuota ? fmtMoney(row.quota) : '未设'} · {row.startDate ? '新账已花' : '已花'} {fmtMoney(row.spent)}</>}
                       </span>
                     </span>
                     <b className={row.overspent ? 'neg' : ''}>
-                      {row.overspent ? `超支 ${fmtMoney(row.overspend)}` : '未超支'}
+                      {row.historicalOnly ? '仅历史查询' : row.overspent ? `超支 ${fmtMoney(row.overspend)}` : '未超支'}
                     </b>
                   </div>
                 ))}
@@ -162,6 +173,7 @@ export function SummaryPage() {
         )}
 
         {/* 收入 */}
+        {assetsAvailable && <>
         <div className="divider" />
         <div className="detail-sub">收入 · 实际与预期</div>
         {inc && (
@@ -183,7 +195,8 @@ export function SummaryPage() {
 
         {/* 储蓄 */}
         <div className="divider" />
-        <div className="detail-sub">储蓄 · 实际与预期（截至 {refMonth}）</div>
+        <div className="detail-sub">储蓄 · {manualOpening ? '各卡金额' : '实际与预期'}（截至 {refMonth}）</div>
+        {manualOpening && <div className="muted mt" style={{ fontSize: 12 }}>手工预算期初已包含基金总额，可能集中放在一张卡中；单卡预算与银行余额不能直接对账，差额请看下方总资产。</div>}
         {savings.length ? (
           savings.map((v) => (
             <div className="sum-row" key={v.cardId}>
@@ -194,7 +207,7 @@ export function SummaryPage() {
                   实际{v.actual !== null ? fmtMoney(v.actual) : '未填'} · 预期{fmtMoney(v.expected)}
                 </span>
               </span>
-              {v.diff !== null ? (
+              {manualOpening ? <span className="muted">仅展示</span> : v.diff !== null ? (
                 <b className={Number(v.diff) >= 0 ? 'pos' : 'neg'}>{fmtSigned(v.diff)}</b>
               ) : (
                 <span className="muted">—</span>
@@ -208,6 +221,7 @@ export function SummaryPage() {
         {/* 对账 */}
         <div className="divider" />
         <div className="detail-sub">对账 · 总资产（截至 {refMonth}）</div>
+        {fundOpeningPending && <div className="warn mt">请先在基金页确认 {start?.startDate.slice(0, 7)} 的开账市值和独立现金，首次净投入为 0。基金基准未确认，对账及“利息/其他”暂不完整。</div>}
         {r ? (
           <>
             <div className="sum-row">
@@ -220,7 +234,7 @@ export function SummaryPage() {
             </div>
             <div className="sum-row total">
               <span>差额（实际−基准）</span>
-              <b className={Number(r.diff) >= 0 ? 'pos' : 'neg'}>{fmtSigned(r.diff)}</b>
+              {fundOpeningPending ? <b className="muted">未完整</b> : <b className={Number(r.diff) >= 0 ? 'pos' : 'neg'}>{fmtSigned(r.diff)}</b>}
             </div>
             <div className="brk-title">差额拆解</div>
             <div className="brk">
@@ -244,25 +258,86 @@ export function SummaryPage() {
               </span>
             </div>
             <div className="brk">
-              <span>利息/其他</span>
-              <span className={Number(r.interest) >= 0 ? 'pos' : 'neg'}>
+              <span>利息/其他（累计）</span>
+              {fundOpeningPending ? <span className="muted">未完整</span> : <span className={Number(r.interest) >= 0 ? 'pos' : 'neg'}>
                 {fmtSigned(r.interest)}
-              </span>
+              </span>}
+            </div>
+            <details className="interest-change">
+              <summary className="brk">
+                <span>
+                  <span className="disclosure-arrow" aria-hidden="true">▸</span>{' '}
+                  {openingMonth ? manualOpening ? '起账月新增差额' : '起账后新增差额' : mode === 'month' ? '本月新增差额' : `${refMonth} 新增差额`}
+                </span>
+                {fundOpeningPending ? <span className="muted">未完整</span> : r.interestChange.amount !== null ? (
+                  <span className={Number(r.interestChange.amount) >= 0 ? 'pos' : 'neg'}>
+                    {fmtSigned(r.interestChange.amount)}
+                  </span>
+                ) : (
+                  <span className="muted">无法计算</span>
+                )}
+              </summary>
+              <div className="cat-items">
+                <div className="brk">
+                  <span>{openingMonth ? manualOpening ? '人工重建起点参考' : '已核实起账基准' : `${r.interestChange.previousMonth} 累计`}</span>
+                  {r.interestChange.previousInterest !== null ? (
+                    <span className={Number(r.interestChange.previousInterest) >= 0 ? 'pos' : 'neg'}>
+                      {fmtSigned(r.interestChange.previousInterest)}
+                    </span>
+                  ) : (
+                    <span className="muted">未完整</span>
+                  )}
+                </div>
+                <div className="brk">
+                  <span>{refMonth} 累计</span>
+                  {fundOpeningPending ? <span className="muted">未完整</span> : <span className={Number(r.interest) >= 0 ? 'pos' : 'neg'}>
+                    {fmtSigned(r.interest)}
+                  </span>}
+                </div>
+                <div className="muted mt" style={{ fontSize: 12 }}>
+                  {openingMonth
+                    ? manualOpening
+                      ? '新增差额 = 起账月累计 − 起点参考 0；不与旧账上月比较。期初由你手工重建，系统不会自动调平；基金基准确认前无法完整计算。'
+                      : '新增差额 = 起账后累计 − 起账基准 0；不与旧账上月比较。'
+                    : `新增差额 = ${refMonth} 累计 − ${r.interestChange.previousMonth} 累计。`}
+                  这是未解释差额的变化，不等于真实当月利息；预算基准变化、历史补录或修正也可能影响结果。
+                  调整全局期初会重算所有月份的累计值。
+                </div>
+                {r.interestChange.warnings.map((warning) => (
+                  <div className="muted mt" style={{ fontSize: 12 }} key={warning}>
+                    {warning}
+                  </div>
+                ))}
+              </div>
+            </details>
+            {r.interestChange.unavailableReason && (
+              <div className="warn mt">{r.interestChange.unavailableReason}</div>
+            )}
+            {r.interestChange.warnings.length > 0 && (
+              <div className="muted mt" style={{ fontSize: 12 }}>
+                存在余额沿用或对账口径变化，新增差额仅供参考；展开可查看来源。
+              </div>
+            )}
+            <div className="muted mt" style={{ fontSize: 12 }}>
+              累计截至 {refMonth}，不是所选期间的利息合计。正数表示扣除已解释项后实际偏多，负数表示实际偏少。
             </div>
             <div className="muted mt" style={{ fontSize: 12 }}>
-              基金市值等额进入对账预算基准和实际，不计算盈亏；基金预充是未包含在其他储蓄卡余额中的独立现金，只进入实际；累计基金净投入从预算基准中扣除，本身不是资产。消费超支=逐月
+              {manualOpening
+                ? '人工预算期初已含开账基金市值和独立现金，不再重复叠加。对账预算先扣固定开账市值，再加当前市值，并扣确认后的累计净投入；实际加当前基金市值及独立现金。基金市值变化不算盈亏，也不会造成对账假差额。'
+                : <>基金市值等额进入对账预算基准和实际，不计算盈亏；基金预充是未包含在其他储蓄卡余额中的独立现金，当前余额进入实际{start ? '，起账时的基金现金同时计入预算期初' : ''}；{start ? '起账后' : '累计'}基金净投入从预算基准中扣除，本身不是资产。</>}
+              消费超支=逐月
               max(已花−当月消费预算, 0)；消费预充暂存=累计超额充值−累计超支−累计结转（累计结转{' '}
               {fmtMoney(r.carryover)}）。
             </div>
             {!r.savingsFilled && (
               <div className="warn mt">部分储蓄卡未填该期真实额，总资产/差额暂不完整。</div>
             )}
-            {!r.fundMarketValueFilled && (
+            {!r.fundMarketValueFilled && !fundOpeningPending && (
               <div className="warn mt">
                 该期基金市值尚未填写，总资产暂不完整；市值在对账两边均按 0 占位，因此不会改变差额。
               </div>
             )}
-            {!r.fundNetInvestmentFilled && (
+            {!r.fundNetInvestmentFilled && !fundOpeningPending && (
               <div className="warn mt">
                 基金净投入尚未确认的月份：
                 {r.fundMissingNetInvestmentMonths.join('、')}。对账预算基准和“利息/其他”暂不完整。
@@ -272,8 +347,10 @@ export function SummaryPage() {
         ) : (
           <div className="muted">暂无数据</div>
         )}
+        </>}
       </div>
 
+      {assetsAvailable && <>
       <div className="card">
         <div className="detail-sub">基金储蓄池（截至 {refMonth}）</div>
         <div className="sum-row">
@@ -294,7 +371,7 @@ export function SummaryPage() {
         </div>
         <div className="sum-row">
           <span>
-            {mode === 'month' ? '本月净投入' : `${refMonth} 净投入`}{' '}
+            {openingMonth && manualOpening ? '开账确认后本月净投入' : mode === 'month' ? '本月净投入' : `${refMonth} 净投入`}{' '}
             <span className="meta">非资产项</span>
           </span>
           {r?.fundFlowBaselineMonth === refMonth ? (
@@ -325,6 +402,7 @@ export function SummaryPage() {
           </div>
         )}
       </div>
+      </>}
     </div>
   );
 }

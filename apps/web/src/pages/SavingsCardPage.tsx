@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   useAddSavingsLog,
+  useBookkeepingStart,
   useCards,
   useClearSavingsMonth,
   useConsumptionBudget,
@@ -15,6 +16,7 @@ import {
 } from '../api/hooks';
 import { CardManageBar } from '../components/CardManageBar';
 import { currentMonthStr, fmtDateTime, fmtMoney } from '../lib/format';
+import { BookkeepingScopeNotice } from '../components/BookkeepingScopeNotice';
 
 const FIELD_LABEL = { AMOUNT: '真实储蓄金额', INCOME: '本月收入', EXCESS: '超额支出' } as const;
 
@@ -31,6 +33,8 @@ export function SavingsCardPage() {
 
   const card = cards.data?.find((item) => item.id === id);
   const [month, setMonth] = useState(currentMonthStr());
+  const startDate = useBookkeepingStart().data?.startDate;
+  const historical = !!startDate && month < startDate.slice(0, 7);
   const rows = list.data ?? [];
   const existing = rows.find((row) => row.month === month);
   const entries = useSavingsEntries(id, month);
@@ -66,6 +70,7 @@ export function SavingsCardPage() {
   const fundingRow = funding.data?.rows.find((row) => row.savingsCardId === id);
 
   const saveAll = async () => {
+    if (historical) return;
     setSaving(true);
     try {
       const nextAmount = amount === '' ? null : Number(amount);
@@ -86,6 +91,8 @@ export function SavingsCardPage() {
         await setCBudget.mutateAsync({ savingsCardId: id, month, amount: budgetInput || '0' });
       }
       navigate('/savings');
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : '保存失败');
     } finally {
       setSaving(false);
     }
@@ -110,6 +117,8 @@ export function SavingsCardPage() {
           <label>月份</label>
           <input type="month" value={month} onChange={(event) => setMonth(event.target.value)} />
         </div>
+        <BookkeepingScopeNotice month={month} />
+        {!historical && <>
         <div className="field">
           <label>真实储蓄金额</label>
           <input
@@ -184,8 +193,10 @@ export function SavingsCardPage() {
         >
           清除本月数据
         </button>
+        </>}
       </div>
 
+      {!historical && <>
       <div className="section-title">{month} · 修改流水</div>
       <div className="card">
         {logRows.length ? (
@@ -225,6 +236,7 @@ export function SavingsCardPage() {
           onDeleted={() => navigate('/savings')}
         />
       )}
+      </>}
     </div>
   );
 }

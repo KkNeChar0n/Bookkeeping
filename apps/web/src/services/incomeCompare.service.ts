@@ -1,6 +1,7 @@
 import { db } from '../db/db';
 import { savingsEntryService } from './savingsEntry.service';
 import { fromCents } from '../domain/money';
+import { getBookkeepingStart } from './bookkeepingScope';
 
 export interface IncomeCompare {
   prefix: string;
@@ -12,9 +13,13 @@ export interface IncomeCompare {
 export const incomeCompareService = {
   /** 按周期(prefix: 'YYYY-MM' 或 'YYYY')比较收入 */
   async compute(prefix: string): Promise<IncomeCompare> {
-    const budgetDetails = await db.budgetDetails.toArray();
+    const [budgetDetails, start] = await Promise.all([
+      db.budgetDetails.toArray(),
+      getBookkeepingStart(),
+    ]);
+    const startMonth = start?.startDate.slice(0, 7);
     const expected = budgetDetails
-      .filter((d) => d.kind === 'IN' && d.month.startsWith(prefix))
+      .filter((d) => d.kind === 'IN' && d.month.startsWith(prefix) && (!startMonth || d.month >= startMonth))
       .reduce((s, d) => s + d.amount, 0);
     const actual = await savingsEntryService.actualIncome(prefix);
     return {
