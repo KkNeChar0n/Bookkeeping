@@ -1,6 +1,6 @@
 import { db, newId, nowTs, type SavingsLogRow } from '../db/db';
 import { fromCents, toCents } from '../domain/money';
-import { assertActiveMonth } from './bookkeepingScope';
+import { assertActiveMonth, assertConsumptionMonth } from './bookkeepingScope';
 
 export type SavingsLogField = SavingsLogRow['field'];
 
@@ -27,7 +27,8 @@ export const savingsLogService = {
     field: SavingsLogField;
     amount: string;
   }): Promise<void> {
-    await assertActiveMonth(input.month);
+    if (input.field === 'EXCESS') await assertConsumptionMonth(input.month);
+    else await assertActiveMonth(input.month);
     await db.savingsLogs.add({
       id: newId(),
       cardId: input.cardId,

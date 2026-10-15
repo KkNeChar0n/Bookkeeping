@@ -19,6 +19,8 @@ import { categoriesService } from '../services/categories';
 import { initialBalanceLogService } from '../services/initialBalanceLog.service';
 import { fundSavingsService } from '../services/fundSavings.service';
 import { bookkeepingRestartService } from '../services/bookkeepingRestart.service';
+import { consumptionHistoryRecoveryService } from '../services/consumptionHistoryRecovery.service';
+import { fromCents } from '../domain/money';
 
 // ---- 当前账本起点与手工重新起账 ----
 export function useBookkeepingStart() {
@@ -29,6 +31,30 @@ export function useRestartBookkeeping() {
   return useMutation({
     mutationFn: () => bookkeepingRestartService.restart(),
     onSuccess: () => qc.invalidateQueries(),
+  });
+}
+export function useRestoreConsumptionHistory() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: unknown) => consumptionHistoryRecoveryService.restore(input),
+    onSuccess: () => qc.invalidateQueries(),
+  });
+}
+export function useConsumptionReconcileTotals(month: string) {
+  return useQuery({
+    queryKey: ['consumptionBudget', 'reconcileTotals', month],
+    queryFn: async () => {
+      const [totals, excess] = await Promise.all([
+        consumptionBudgetService.reconcileTotals(month),
+        savingsEntryService.cumExcessUpTo(month),
+      ]);
+      return {
+        budget: fromCents(totals.totalBudget),
+        excess: fromCents(excess),
+        spent: fromCents(totals.totalSpent),
+        overspend: fromCents(totals.overspendPos),
+      };
+    },
   });
 }
 

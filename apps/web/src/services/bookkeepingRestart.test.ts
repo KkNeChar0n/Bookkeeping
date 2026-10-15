@@ -40,6 +40,12 @@ async function fillManualOpening() {
   await fundSavingsService.set({ month, marketValue: '50', prepaid: '10', netInvestment: '0' });
 }
 
+/** Backups created before cumulative-consumption support retain their old scope. */
+async function legacyManualRestart() {
+  await bookkeepingRestartService.restart();
+  await db.bookkeepingStart.toCollection().modify((start) => { delete start.consumptionHistory; });
+}
+
 beforeEach(async () => {
   await db.open();
   await db.cards.add({
@@ -49,13 +55,18 @@ beforeEach(async () => {
 });
 afterEach(async () => { db.close(); await db.delete(); });
 
-test('manual restart deletes all old asset records, future plans, logs and local archives while retaining cards and consumption', async () => {
+test('manual restart deletes old assets but retains historical consumption quotas and excess recharge, not future plans', async () => {
   const month = currentMonthStr();
+  const previous = addMonths(month, -1);
   const future = addMonths(month, 1);
   await budgetPlanService.addDetail({ cardId, month: future, label: '旧计划', kind: 'IN', amount: '999' });
   await savingsActualService.setAmount({ cardId, month, amount: '80' });
   await savingsEntryService.setEntry({ cardId, month, kind: 'INCOME', amount: '30' });
   await savingsEntryService.setEntry({ cardId, month, kind: 'EXCESS', amount: '20' });
+  await savingsEntryService.setEntry({ cardId, month: previous, kind: 'EXCESS', amount: '8' });
+  await savingsEntryService.setEntry({ cardId, month: future, kind: 'EXCESS', amount: '99' });
+  await consumptionBudgetService.setBudget({ savingsCardId: cardId, month: previous, amount: '20' });
+  await consumptionBudgetService.setBudget({ savingsCardId: cardId, month, amount: '20' });
   await consumptionBudgetService.setBudget({ savingsCardId: cardId, month: future, amount: '10' });
   await fundSavingsService.set({ month, marketValue: '88', prepaid: '20', netInvestment: '77' });
   await db.budgetSnapshots.add({ id: 'old-snapshot', date: todayStr(), note: null, createdAt: 1 });
@@ -70,14 +81,21 @@ test('manual restart deletes all old asset records, future plans, logs and local
   const start = await bookkeepingRestartService.restart();
   assert.equal(start.startDate, `${month}-01`);
   assert.equal(start.manualOpening, true);
+  assert.equal(start.consumptionHistory, true);
   assert.equal(start.fundOpeningConfirmed, false);
   assert.equal(start.openingFundPrepaid, 0);
   assert.equal(start.openingFundMarketValue, 0);
   assert.deepEqual(start.openingSavings, []);
   for (const table of db.tables) {
-    if (['cards', 'categories', 'transactions', 'bookkeepingStart'].includes(table.name)) continue;
+    if (['cards', 'categories', 'transactions', 'bookkeepingStart', 'consumptionBudgets', 'savingsEntries'].includes(table.name)) continue;
     assert.equal(await table.count(), 0, `${table.name} must be cleared`);
   }
+  assert.deepEqual((await db.consumptionBudgets.orderBy('month').toArray()).map((row) => [row.month, row.amount]), [
+    [previous, 2000], [month, 2000],
+  ]);
+  assert.deepEqual((await db.savingsEntries.toArray()).map((row) => [row.month, row.kind, row.amount]).sort(), [
+    [previous, 'EXCESS', 800], [month, 'EXCESS', 2000],
+  ].sort());
   assert.equal(await db.categories.count(), 1);
   for (const card of await db.cards.toArray()) {
     assert.equal(card.initialBalance, 0);
@@ -105,17 +123,18 @@ test('manual opening includes the fund total once and leaves only excess recharg
   assert.equal(report.interestChange.amount, '0.00');
 });
 
-test('all current-month consumption survives and participates, but previous months and backfilled history do not', async () => {
+test('legacy manual opening without consumption-history flag excludes previous months and backfilled history', async () => {
   const month = currentMonthStr();
   const oldMonth = addMonths(month, -1);
   await expense('old-month', 10_000_000, `${oldMonth}-28`);
   await expense('current-before-restart', 2_000, `${month}-01`, true);
-  await bookkeepingRestartService.restart();
+  await legacyManualRestart();
   await fillManualOpening();
   await expense('current-after-restart', 400);
   await expense('backfilled-old-month', 70_000, `${oldMonth}-01`);
 
-  assert.equal((await db.transactions.get('old-month'))?.archivedForReconciliation, true);
+  // The legacy scope is determined by date even if an imported row lacks an archive marker.
+  assert.equal((await db.transactions.get('old-month'))?.archivedForReconciliation, undefined);
   assert.equal((await db.transactions.get('current-before-restart'))?.archivedForReconciliation, undefined);
   assert.equal((await spendService.monthView(month)).spent, '24.00');
   assert.equal((await spendStatsService.byCategory(oldMonth)).total, '100700.00');
@@ -130,12 +149,12 @@ test('all current-month consumption survives and participates, but previous mont
   assert.equal(await consumptionBudgetService.bufferBefore(addMonths(month, 1)), '1.00');
 });
 
-test('unused excess carries into next month without reviving old consumption or creating other difference', async () => {
+test('legacy manual opening without consumption-history flag carries excess without reviving old consumption', async () => {
   const month = currentMonthStr();
   const next = addMonths(month, 1);
   await expense('old-month', 10_000_000, `${addMonths(month, -1)}-01`);
   await expense('opening-month-spending', 2400, `${month}-01`);
-  await bookkeepingRestartService.restart();
+  await legacyManualRestart();
   await fillManualOpening();
   await budgetPlanService.addDetail({ cardId, month: next, label: '次月消费预算', kind: 'EXPENSE', amount: '20' });
   await consumptionBudgetService.setBudget({ savingsCardId: cardId, month: next, amount: '20' });
@@ -151,6 +170,67 @@ test('unused excess carries into next month without reviving old consumption or 
   assert.equal(report.carryover, '1.00');
   assert.equal(report.interest, '0.00');
   assert.equal(report.interestChange.amount, '0.00');
+});
+
+test('cumulative consumption survives manual restart without counting historical transfers against current assets twice', async () => {
+  const month = currentMonthStr();
+  const first = addMonths(month, -2);
+  const previous = addMonths(month, -1);
+  const next = addMonths(month, 1);
+  for (const [entryMonth, excess, spent] of [
+    [first, '8', 2400], [previous, '7', 2200], [month, '5', 2300],
+  ] as const) {
+    await consumptionBudgetService.setBudget({ savingsCardId: cardId, month: entryMonth, amount: '20' });
+    await savingsEntryService.setEntry({ cardId, month: entryMonth, kind: 'EXCESS', amount: excess });
+    await expense(`consumption-${entryMonth}`, spent, `${entryMonth}-01`, true);
+  }
+
+  await bookkeepingRestartService.restart();
+  assert.equal((await bookkeepingRestartService.current())?.consumptionHistory, true);
+  assert.equal((await spendService.monthView(first)).spent, '24.00');
+  assert.equal((await spendService.monthView(first)).quota, '20.00');
+  assert.equal((await spendService.monthView(first)).excess, '8.00');
+  assert.equal((await spendService.monthView(first)).historicalOnly, false);
+  assert.equal((await consumptionBudgetService.fundingForMonth(previous)).rows[0].carry, '4.00');
+  assert.equal((await consumptionBudgetService.fundingForMonth(month)).rows[0].carry, '5.00');
+  assert.equal(await consumptionBudgetService.bufferBefore(next), '2.00');
+  assert.deepEqual(await consumptionBudgetService.reconcileTotals(month), {
+    totalBudget: 6000, totalSpent: 6900, carryover: 0, overspendPos: 900, buffer: 200,
+  });
+
+  // All old bank transfers are already represented by today's balance: only
+  // cumulative quota/excess, not historic carry, enters the hand-entered opening.
+  await cardsService.update(cardId, { initialBalance: '240' });
+  await budgetPlanService.addDetail({ cardId, month, label: '累计消费预算', kind: 'EXPENSE', amount: '60' });
+  await savingsActualService.setAmount({ cardId, month, amount: '100' });
+  await fundSavingsService.set({ month, marketValue: '50', prepaid: '10', netInvestment: '0' });
+  const opening = await reconciliationService.report(month);
+  assert.equal(opening.budgetTotal, '180.00');
+  assert.equal(opening.actualTotal, '160.00');
+  assert.equal(opening.diff, '-20.00');
+  assert.equal(opening.overspend, '9.00');
+  assert.equal(opening.prepaid, '11.00');
+  assert.equal(opening.carryover, '0.00');
+  assert.equal(opening.interest, '0.00');
+
+  await consumptionBudgetService.setBudget({ savingsCardId: cardId, month: next, amount: '20' });
+  await budgetPlanService.addDetail({ cardId, month: next, label: '下月完整消费预算', kind: 'EXPENSE', amount: '20' });
+  await expense('next-consumption', 2000, `${next}-01`);
+  await savingsActualService.setAmount({ cardId, month: next, amount: '82' });
+  await fundSavingsService.set({ month: next, marketValue: '50', prepaid: '10', netInvestment: '0' });
+  const funding = await consumptionBudgetService.fundingForMonth(next);
+  assert.equal(funding.prepaidStart, '2.00');
+  assert.equal(funding.rows[0].carry, '2.00');
+  assert.equal(funding.rows[0].newTransfer, '18.00');
+  const following = await reconciliationService.report(next);
+  assert.equal(following.budgetTotal, '160.00');
+  assert.equal(following.actualTotal, '142.00');
+  assert.equal(following.diff, '-18.00');
+  assert.equal(following.overspend, '9.00');
+  assert.equal(following.prepaid, '9.00');
+  assert.equal(following.carryover, '2.00');
+  assert.equal(following.interest, '0.00');
+  assert.equal(following.interestChange.amount, '0.00');
 });
 
 test('unconfirmed manual fund opening prevents a false complete reconciliation', async () => {

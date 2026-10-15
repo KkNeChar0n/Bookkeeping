@@ -925,6 +925,13 @@ test('damaged restart metadata is rejected before any existing ledger data is re
       { manualOpening: true, fundOpeningConfirmed: 'true' },
       { manualOpening: true, fundOpeningConfirmed: false },
       { manualOpening: true, startDate: '2026-10-01' },
+      { consumptionHistory: true },
+      { consumptionHistory: false },
+      { consumptionHistory: 'true' },
+      { manualOpening: true, startDate: '2026-10-01', fundOpeningConfirmed: false, consumptionHistory: false },
+      { manualOpening: true, startDate: '2026-10-01', fundOpeningConfirmed: false, consumptionHistory: 'true' },
+      { manualOpening: true, startDate: '2026-10-01', fundOpeningConfirmed: false, consumptionHistory: 1 },
+      { manualOpening: true, startDate: '2026-10-01', fundOpeningConfirmed: false, consumptionHistory: null },
     ]) {
       await assert.rejects(
         backupService.importAll({ ...source, bookkeepingStart: { ...bookkeepingStart, ...patch } } as BackupData),
@@ -950,6 +957,39 @@ test('manual opening mode and the confirmed fixed fund baseline survive normaliz
   }).bookkeepingStart, manualStart);
   const unconfirmed = { ...manualStart, fundOpeningConfirmed: false, openingFundMarketValue: 0, openingFundPrepaid: 0 };
   assert.deepEqual(normalizeBackupData({ ...source, bookkeepingStart: unconfirmed }).bookkeepingStart, unconfirmed);
+});
+
+test('cumulative manual consumption scope survives full backup round-trips without being added to legacy manual backups', async () => {
+  db.close();
+  await db.delete();
+  await db.open();
+  try {
+    const cumulative: BookkeepingStartRow = {
+      ...bookkeepingStart, startDate: '2026-10-01', manualOpening: true,
+      fundOpeningConfirmed: false, consumptionHistory: true,
+      openingFundMarketValue: 0, openingFundPrepaid: 0, openingSavings: [],
+    };
+    const input: BackupData = {
+      ...source, bookkeepingStart: cumulative,
+      savingsEntries: [{ id: 'historic-excess', cardId: 's', month: '2026-08', kind: 'EXCESS', amount: 500, createdAt: 1 }],
+    };
+    await backupService.importAll(input);
+    const exported = await backupService.exportAll();
+    assert.deepEqual(exported.bookkeepingStart, cumulative);
+    assert.equal(exported.consumptionBudgets?.length, 2);
+    assert.deepEqual(exported.savingsEntries, input.savingsEntries);
+    await backupService.importAll(exported);
+    assert.deepEqual(await db.bookkeepingStart.get('active'), cumulative);
+    const reexported = await backupService.exportAll();
+    assert.deepEqual(reexported.consumptionBudgets, exported.consumptionBudgets);
+    assert.deepEqual(reexported.savingsEntries, exported.savingsEntries);
+
+    const { consumptionHistory, ...legacyManual } = cumulative;
+    assert.equal(consumptionHistory, true);
+    await backupService.importAll({ ...input, bookkeepingStart: legacyManual });
+    assert.equal((await db.bookkeepingStart.get('active'))?.consumptionHistory, undefined);
+    assert.equal((await backupService.exportAll()).bookkeepingStart?.consumptionHistory, undefined);
+  } finally { db.close(); await db.delete(); }
 });
 
 test('a damaged confirmed manual fund opening is rejected before replacing the active ledger', async () => {

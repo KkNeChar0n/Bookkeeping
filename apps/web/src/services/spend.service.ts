@@ -2,7 +2,7 @@ import { db } from '../db/db';
 import { consumptionMonthTotals, VIRTUAL_CONSUMPTION_CARD_ID } from '../domain/consumption';
 import { fromCents, type Cents } from '../domain/money';
 import { consumptionBudgetService } from './consumptionBudget.service';
-import { getBookkeepingStart, isActiveConsumption } from './bookkeepingScope';
+import { getBookkeepingStart, hasConsumptionHistory, isActiveConsumption } from './bookkeepingScope';
 
 export interface SpendMonthView {
   month: string;
@@ -17,6 +17,8 @@ export interface SpendMonthView {
   totalSpent?: string;
   historicalOnly?: boolean;
   startDate?: string;
+  /** Consumption stays cumulative across an asset-only restart. */
+  consumptionHistory?: true;
 }
 
 export interface SpendPeriodView extends SpendMonthView {
@@ -48,8 +50,9 @@ export const spendService = {
       overspent: totals.overspend > 0,
       ...(start ? {
         totalSpent: fromCents(totalSpent),
-        historicalOnly: month < start.startDate.slice(0, 7),
+        historicalOnly: !hasConsumptionHistory(start) && month < start.startDate.slice(0, 7),
         startDate: start.startDate,
+        ...(hasConsumptionHistory(start) ? { consumptionHistory: true as const } : {}),
       } : {}),
     };
   },
@@ -81,8 +84,9 @@ export const spendService = {
       months: rows,
       ...(start ? {
         totalSpent: fromCents(rows.reduce((total, row) => total + Math.round(Number(row.totalSpent ?? row.spent) * 100), 0)),
-        historicalOnly: prefix < start.startDate.slice(0, 4),
+        historicalOnly: !hasConsumptionHistory(start) && prefix < start.startDate.slice(0, 4),
         startDate: start.startDate,
+        ...(hasConsumptionHistory(start) ? { consumptionHistory: true as const } : {}),
       } : {}),
     };
   },

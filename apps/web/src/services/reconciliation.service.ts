@@ -24,9 +24,9 @@ export interface Reconciliation {
   fundMissingNetInvestmentMonths: string[];
   fundFlowBaselineMonth: string | null;
   fundMarketValueFilled: boolean;
-  overspend: string; // 累计消费超支（净额：已花 − 消费预算）
-  prepaid: string; // 预充暂存（虚拟消费账户里还没花掉的钱，随结转自动升降）
-  carryover: string; // 累计结转（用掉上月预充的部分）
+  overspend: string; // 逐月超出消费定额的部分之和，不与少花月份抵销
+  prepaid: string; // 消费充值对账余额；累计消费起账模式不等同于真实消费资金结余
+  carryover: string; // 资产口径累计结转；累计消费模式只计起账月之后
   incomeDiff: string; // 累计收入差额（截至 refMonth）
   interest: string; // 截至 refMonth 累计利息/其他（未解释残差）
   savingsFilled: boolean;
@@ -96,7 +96,8 @@ export const reconciliationService = {
     const fundPrepaid = toCents(fund.prepaid);
     const fundTotal = fundMarketValue + fundPrepaid;
 
-    // 消费侧累计量（含跨月结转）
+    // 消费侧累计量。保留历史消费模式下定额/充值/超支覆盖完整历史，
+    // 资产口径结转只计起账月之后，之前的资金流已包含在手填期初中。
     const { carryover, overspendPos } = await consumptionBudgetService.reconcileTotals(ref);
     const moved = await savingsEntryService.cumExcessUpTo(ref); // 累计额外充值
     const overspend = overspendPos; // 消费超支：逐月真正超过预算的部分（没花就是 0）

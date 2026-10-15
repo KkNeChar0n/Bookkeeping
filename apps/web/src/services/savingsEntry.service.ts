@@ -1,6 +1,11 @@
 import { db, newId, nowTs } from '../db/db';
 import { fromCents, toCents, type Cents } from '../domain/money';
-import { assertActiveMonth, getBookkeepingStart } from './bookkeepingScope';
+import {
+  assertActiveMonth,
+  assertConsumptionMonth,
+  getBookkeepingStart,
+  hasConsumptionHistory,
+} from './bookkeepingScope';
 
 export type SavingsEntryKind = 'INCOME' | 'EXCESS';
 
@@ -15,9 +20,11 @@ export const savingsEntryService = {
   /** 某卡某月的多笔条目（收入 + 超额支出） */
   async list(cardId: string, month: string): Promise<SavingsEntryDTO[]> {
     const start = await getBookkeepingStart();
-    if (start && month < start.startDate.slice(0, 7)) return [];
+    const historical = Boolean(start && month < start.startDate.slice(0, 7));
+    if (historical && !hasConsumptionHistory(start)) return [];
     const rows = await db.savingsEntries.where('[cardId+month]').equals([cardId, month]).toArray();
     return rows
+      .filter((row) => !historical || row.kind === 'EXCESS')
       .sort((a, b) => a.createdAt - b.createdAt)
       .map((r) => ({ id: r.id, kind: r.kind, amount: fromCents(r.amount), note: r.note ?? null }));
   },
@@ -29,7 +36,8 @@ export const savingsEntryService = {
     amount: string;
     note?: string;
   }): Promise<void> {
-    await assertActiveMonth(input.month);
+    if (input.kind === 'EXCESS') await assertConsumptionMonth(input.month);
+    else await assertActiveMonth(input.month);
     const amt = toCents(input.amount);
     if (amt <= 0) throw new Error('金额必须为正');
     await db.savingsEntries.add({
@@ -54,7 +62,8 @@ export const savingsEntryService = {
     kind: SavingsEntryKind;
     amount: string;
   }): Promise<void> {
-    await assertActiveMonth(input.month);
+    if (input.kind === 'EXCESS') await assertConsumptionMonth(input.month);
+    else await assertActiveMonth(input.month);
     const rows = await db.savingsEntries
       .where('[cardId+month]')
       .equals([input.cardId, input.month])
@@ -105,7 +114,7 @@ export const savingsEntryService = {
       db.savingsEntries.where('kind').equals('EXCESS').toArray(),
       getBookkeepingStart(),
     ]);
-    const startMonth = start?.startDate.slice(0, 7);
+    const startMonth = hasConsumptionHistory(start) ? undefined : start?.startDate.slice(0, 7);
     return rows
       .filter((r) => r.month <= refMonth && (!startMonth || r.month >= startMonth))
       .reduce((s, r) => s + r.amount, 0);

@@ -33,8 +33,10 @@ export function SavingsCardPage() {
 
   const card = cards.data?.find((item) => item.id === id);
   const [month, setMonth] = useState(currentMonthStr());
-  const startDate = useBookkeepingStart().data?.startDate;
+  const start = useBookkeepingStart().data;
+  const startDate = start?.startDate;
   const historical = !!startDate && month < startDate.slice(0, 7);
+  const canEditFunding = !historical || (start?.manualOpening === true && start.consumptionHistory === true);
   const rows = list.data ?? [];
   const existing = rows.find((row) => row.month === month);
   const entries = useSavingsEntries(id, month);
@@ -70,16 +72,16 @@ export function SavingsCardPage() {
   const fundingRow = funding.data?.rows.find((row) => row.savingsCardId === id);
 
   const saveAll = async () => {
-    if (historical) return;
+    if (!canEditFunding) return;
     setSaving(true);
     try {
       const nextAmount = amount === '' ? null : Number(amount);
       const oldAmount = existing ? Number(existing.amount) : null;
-      if (nextAmount !== null && nextAmount !== oldAmount) {
+      if (!historical && nextAmount !== null && nextAmount !== oldAmount) {
         await addLog.mutateAsync({ cardId: id, month, field: 'AMOUNT', amount });
         await setAmt.mutateAsync({ cardId: id, month, amount });
       }
-      if (Number(income || 0) !== incomeTotal) {
+      if (!historical && Number(income || 0) !== incomeTotal) {
         await addLog.mutateAsync({ cardId: id, month, field: 'INCOME', amount: income || '0' });
         await setEntry.mutateAsync({ cardId: id, month, kind: 'INCOME', amount: income || '0' });
       }
@@ -98,7 +100,7 @@ export function SavingsCardPage() {
     }
   };
 
-  const logRows = logs.data ?? [];
+  const logRows = (logs.data ?? []).filter((log) => !historical || log.field === 'EXCESS');
   return (
     <div>
       <div className="detail-header">
@@ -118,6 +120,7 @@ export function SavingsCardPage() {
           <input type="month" value={month} onChange={(event) => setMonth(event.target.value)} />
         </div>
         <BookkeepingScopeNotice month={month} />
+        {historical && canEditFunding && <div className="muted mt" style={{ fontSize: 12 }}>此处仅核对或修正历史消费定额与超额充值，参与完整消费累计；不会填写旧银行余额、收入，或改动当前真实资产。若累计金额有变，请同步核对新账预算期初及累计定额支出。</div>}
         {!historical && <>
         <div className="field">
           <label>真实储蓄金额</label>
@@ -139,6 +142,8 @@ export function SavingsCardPage() {
             onChange={(event) => setIncome(event.target.value)}
           />
         </div>
+        </>}
+        {canEditFunding && <>
         <div className="field">
           <label>超额充值 · 额外充给全局消费账户的钱</label>
           <input
@@ -173,7 +178,7 @@ export function SavingsCardPage() {
         <button className="primary" onClick={saveAll} disabled={saving}>
           保存并返回
         </button>
-        <button
+        {!historical && <button
           className="danger"
           style={{ width: '100%', marginTop: 8 }}
           onClick={async () => {
@@ -192,11 +197,11 @@ export function SavingsCardPage() {
           disabled={clearMonth.isPending}
         >
           清除本月数据
-        </button>
+        </button>}
         </>}
       </div>
 
-      {!historical && <>
+      {canEditFunding && <>
       <div className="section-title">{month} · 修改流水</div>
       <div className="card">
         {logRows.length ? (
@@ -227,7 +232,8 @@ export function SavingsCardPage() {
         )}
       </div>
 
-      {card && (
+      </>}
+      {!historical && card && (
         <CardManageBar
           cardId={id}
           name={card.name}
@@ -236,7 +242,6 @@ export function SavingsCardPage() {
           onDeleted={() => navigate('/savings')}
         />
       )}
-      </>}
     </div>
   );
 }

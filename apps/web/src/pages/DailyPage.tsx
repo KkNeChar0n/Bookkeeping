@@ -24,7 +24,7 @@ export function DailyPage() {
   );
 
   const current = view.data;
-  const historicalDate = !!current?.startDate && date < current.startDate;
+  const historicalDate = !current?.consumptionHistory && !!current?.startDate && date < current.startDate;
   const historicalView = !!current?.historicalOnly || historicalDate;
   const remaining = Number(current?.remaining ?? 0);
   const rows = transactions.data ?? [];
@@ -66,12 +66,12 @@ export function DailyPage() {
                 <div className="kv"><span>该月全部消费</span><b>{fmtMoney(current?.totalSpent ?? '0')}</b></div>
               ) : <>
               <div className="kv"><span>额度</span><span>{current?.hasQuota ? fmtMoney(current.quota) : '未设'}</span></div>
-              <div className="kv"><span>{current?.startDate ? '新账本月已消费' : '本月已消费'}</span><b>{fmtMoney(current?.spent ?? '0')}</b></div>
+              <div className="kv"><span>{current?.startDate && !current.consumptionHistory ? '新账本月已消费' : '本月已消费'}</span><b>{fmtMoney(current?.spent ?? '0')}</b></div>
               <div className="kv"><span>本月剩余</span><b className={remaining < 0 ? 'neg' : 'pos'}>{fmtMoney(remaining)}</b></div>
               {Number(current?.overspend ?? 0) > 0 && (
                 <div className="kv"><span>超支</span><b className="neg">{fmtMoney(current?.overspend ?? '0')}</b></div>
               )}
-              {current?.startDate && current.totalSpent !== current.spent && <div className="meta">全月消费（含历史）{fmtMoney(current.totalSpent ?? current.spent)}；历史消费不占用新账额度。</div>}
+              {current?.startDate && !current.consumptionHistory && current.totalSpent !== current.spent && <div className="meta">全月消费（含历史）{fmtMoney(current.totalSpent ?? current.spent)}；历史消费不占用新账额度。</div>}
               </>}
             </div>
 

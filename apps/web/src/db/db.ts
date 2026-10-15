@@ -47,11 +47,11 @@ export interface TransactionRow {
   peerCardId: string | null;
   transferGroupId: string | null;
   createdAt: number;
-  /** 历史消费标记；手工模式按月份边界划分，本月消费仍参与额度与超支。 */
+  /** 旧版起账的历史消费标记；累计消费模式忽略该标记。 */
   archivedForReconciliation?: boolean;
 }
 
-/** 当前账本范围；手工模式 startDate 是消费月份边界，不代表月初资产已核实。 */
+/** 资产账本范围；手工模式 startDate 不代表月初余额，消费可有独立累计范围。 */
 export interface BookkeepingStartRow {
   id: 'active';
   startDate: string; // YYYY-MM-DD，本地起账日期
@@ -63,6 +63,8 @@ export interface BookkeepingStartRow {
   manualOpening?: true;
   /** 手工模式首次保存基金时单独确认固定的开账基金基准。 */
   fundOpeningConfirmed?: boolean;
+  /** 资产重新起账不截断消费历史：定额、超额充值、消费和结转持续累计。 */
+  consumptionHistory?: true;
 }
 
 /** 起账前完整备份；backup 不嵌套其它归档，避免重复起账导致指数增长。 */

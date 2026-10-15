@@ -89,7 +89,7 @@ export function ConsumptionPage() {
   };
 
   const current = view.data;
-  const historicalDate = !!current?.startDate && date < current.startDate;
+  const historicalDate = !current?.consumptionHistory && !!current?.startDate && date < current.startDate;
   const historicalView = !!current?.historicalOnly || historicalDate;
   const remaining = Number(current?.remaining ?? 0);
   const rows = (transactions.data ?? []).filter((row) => row.date === date);
@@ -125,13 +125,13 @@ export function ConsumptionPage() {
           <div className="swipe-balance"><span className="muted">该月全部消费</span><div className="big">{fmtMoney(current?.totalSpent ?? '0')}</div><div className="muted">所选日期属于历史范围，补录只供查询，不计算新账额度和超支。</div></div>
         ) : <>
         <div className="swipe-balance">
-          <span className="muted">{current?.startDate ? '新账本月剩余' : '本月剩余'}</span>
+          <span className="muted">{current?.startDate && !current.consumptionHistory ? '新账本月剩余' : '本月剩余'}</span>
           <div className={`big ${remaining < 0 ? 'neg' : ''}`}>{fmtMoney(remaining)}</div>
           <div className="muted">
             预算 {current?.hasQuota ? fmtMoney(current.quota) : '未设'} · 超额充值 {fmtMoney(current?.excess ?? '0')} · 已消费 {fmtMoney(current?.spent ?? '0')}
             {Number(current?.overspend ?? 0) > 0 ? ` · 超支 ${fmtMoney(current?.overspend ?? '0')}` : ''}
           </div>
-          {current?.startDate && current.totalSpent !== current.spent && <div className="meta mt">全月消费（含历史）{fmtMoney(current.totalSpent ?? current.spent)}；此处“已消费”仅含新账部分。</div>}
+          {current?.startDate && !current.consumptionHistory && current.totalSpent !== current.spent && <div className="meta mt">全月消费（含历史）{fmtMoney(current.totalSpent ?? current.spent)}；此处“已消费”仅含新账部分。</div>}
         </div>
         </>}
 

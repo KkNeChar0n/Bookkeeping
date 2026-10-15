@@ -5,7 +5,12 @@ import {
   VIRTUAL_CONSUMPTION_CARD_ID,
 } from '../domain/consumption';
 import { fromCents, toCents, type Cents } from '../domain/money';
-import { assertActiveMonth, getBookkeepingStart, isActiveConsumption } from './bookkeepingScope';
+import {
+  assertConsumptionMonth,
+  getBookkeepingStart,
+  hasConsumptionHistory,
+  isActiveConsumption,
+} from './bookkeepingScope';
 
 function prevMonth(month: string): string {
   const [year, value] = month.split('-').map(Number);
@@ -20,7 +25,7 @@ async function monthlyTotals(upTo: string) {
     db.transactions.where('cardId').equals(VIRTUAL_CONSUMPTION_CARD_ID).toArray(),
     getBookkeepingStart(),
   ]);
-  const startMonth = start?.startDate.slice(0, 7);
+  const startMonth = hasConsumptionHistory(start) ? undefined : start?.startDate.slice(0, 7);
   const budgetByMonth = new Map<string, Cents>();
   for (const row of budgets) {
     if (row.month <= upTo && (!startMonth || row.month >= startMonth)) {
@@ -46,13 +51,14 @@ async function monthlyTotals(upTo: string) {
     ...excessByMonth.keys(),
     ...spentByMonth.keys(),
   ])].sort();
-  return { months, budgetByMonth, excessByMonth, spentByMonth };
+  return { months, budgetByMonth, excessByMonth, spentByMonth, start };
 }
 
 async function series(upTo: string) {
   const values = await monthlyTotals(upTo);
   let prepaid = 0;
   let carryoverTotal = 0;
+  let assetCarryoverTotal = 0;
   let totalBudget = 0;
   let totalSpent = 0;
   let overspendPos = 0;
@@ -64,12 +70,18 @@ async function series(upTo: string) {
       prepaidStart: prepaid,
     });
     carryoverTotal += totals.carry;
+    // Keep the full history for actual prepaid allocation. At a manual asset
+    // restart, however, all funding through the opening month is already in
+    // the user's newly entered balances; only later carry affects asset flows.
+    if (!hasConsumptionHistory(values.start) || month > values.start!.startDate.slice(0, 7)) {
+      assetCarryoverTotal += totals.carry;
+    }
     totalBudget += totals.budget;
     totalSpent += totals.spent;
     overspendPos += totals.overspend;
     prepaid = totals.prepaidEnd;
   }
-  return { bufferEnd: prepaid, carryoverTotal, totalBudget, totalSpent, overspendPos };
+  return { bufferEnd: prepaid, carryoverTotal, assetCarryoverTotal, totalBudget, totalSpent, overspendPos };
 }
 
 export interface ConsumptionFundingRow {
@@ -91,7 +103,7 @@ export const consumptionBudgetService = {
   /** A savings card's exact-month contribution; missing values stay empty in the editor. */
   async contribution(savingsCardId: string, month: string): Promise<string> {
     const start = await getBookkeepingStart();
-    if (start && month < start.startDate.slice(0, 7)) return '';
+    if (start && !hasConsumptionHistory(start) && month < start.startDate.slice(0, 7)) return '';
     const row = await db.consumptionBudgets
       .where('[savingsCardId+month]')
       .equals([savingsCardId, month])
@@ -101,7 +113,7 @@ export const consumptionBudgetService = {
 
   /** Replace a savings card's exact-month contribution; zero removes it. */
   async setBudget(input: { savingsCardId: string; month: string; amount: string }): Promise<void> {
-    await assertActiveMonth(input.month);
+    await assertConsumptionMonth(input.month);
     const amount = toCents(input.amount || '0');
     const existing = await db.consumptionBudgets
       .where('[savingsCardId+month]')
@@ -128,7 +140,7 @@ export const consumptionBudgetService = {
   /** Global monthly quota = sum of every savings card's contribution for this exact month. */
   async quotaFor(month: string): Promise<Cents> {
     const start = await getBookkeepingStart();
-    if (start && month < start.startDate.slice(0, 7)) return 0;
+    if (start && !hasConsumptionHistory(start) && month < start.startDate.slice(0, 7)) return 0;
     const rows = await db.consumptionBudgets.where('month').equals(month).toArray();
     return rows.reduce((sum, row) => sum + row.amount, 0);
   },
@@ -136,7 +148,7 @@ export const consumptionBudgetService = {
   /** Global monthly excess recharge, without card weighting or cross-month fallback. */
   async excessFor(month: string): Promise<Cents> {
     const start = await getBookkeepingStart();
-    if (start && month < start.startDate.slice(0, 7)) return 0;
+    if (start && !hasConsumptionHistory(start) && month < start.startDate.slice(0, 7)) return 0;
     const rows = await db.savingsEntries.where('kind').equals('EXCESS').toArray();
     return rows.filter((row) => row.month === month).reduce((sum, row) => sum + row.amount, 0);
   },
@@ -152,7 +164,7 @@ export const consumptionBudgetService = {
     const savings = cards
       .filter((card) => card.type === 'SAVINGS')
       .sort((a, b) => a.sortOrder - b.sortOrder || a.createdAt - b.createdAt);
-    const activeBudgets = start && month < start.startDate.slice(0, 7) ? [] : budgets;
+    const activeBudgets = start && !hasConsumptionHistory(start) && month < start.startDate.slice(0, 7) ? [] : budgets;
     const bySavings = new Map(activeBudgets.map((row) => [row.savingsCardId, row.amount]));
     const allocations = allocateCarry(
       savings.map((card) => ({ savingsCardId: card.id, budget: bySavings.get(card.id) ?? 0 })),
@@ -192,7 +204,7 @@ export const consumptionBudgetService = {
     return {
       totalBudget: values.totalBudget,
       totalSpent: values.totalSpent,
-      carryover: values.carryoverTotal,
+      carryover: values.assetCarryoverTotal,
       overspendPos: values.overspendPos,
       buffer: values.bufferEnd,
     };

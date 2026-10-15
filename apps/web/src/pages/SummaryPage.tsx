@@ -2,6 +2,7 @@ import { useState } from 'react';
 import {
   useIncomeCompare,
   useBookkeepingStart,
+  useConsumptionReconcileTotals,
   useReconciliation,
   useSavingsSummaryAsOf,
   useSpendPeriod,
@@ -31,6 +32,7 @@ export function SummaryPage() {
   const incomeCmp = useIncomeCompare(prefix);
   const recon = useReconciliation(refMonth);
   const savingsCmp = useSavingsSummaryAsOf(refMonth);
+  const consumptionTotals = useConsumptionReconcileTotals(refMonth);
 
   const spendView = spend.data;
   const savings = savingsCmp.data ?? [];
@@ -38,6 +40,7 @@ export function SummaryPage() {
   const r = recon.data;
   const start = useBookkeepingStart().data;
   const manualOpening = !!start?.manualOpening;
+  const consumptionHistory = manualOpening && start?.consumptionHistory === true;
   const fundOpeningPending = manualOpening && !start?.fundOpeningConfirmed;
   const openingMonth = !!start && refMonth === start.startDate.slice(0, 7);
   const historical = !!start && refMonth < start.startDate.slice(0, 7);
@@ -82,7 +85,7 @@ export function SummaryPage() {
               style={{ cursor: 'pointer' }}
             >
               <span>
-                {spendView.startDate ? '新账消费' : '全局消费'}
+                {spendView.startDate && !consumptionHistory ? '新账消费' : '全局消费'}
                 <span className="meta">
                   {' '}
                   {mode === 'year' ? '期间额度' : '当月额度'}
@@ -99,7 +102,9 @@ export function SummaryPage() {
                 </span>
               )}
             </div>
-            {spendView.startDate && <div className="muted mt" style={{ fontSize: 12 }}>{manualOpening ? `额度与已花包含 ${spendView.startDate.slice(0, 7)} 起账月的全部消费，更早月份仅查询。` : `额度与已花只计算 ${spendView.startDate} 起账后的新账范围。`}下方分类统计仍包含所选期间全部历史消费。</div>}
+            {spendView.startDate && <div className="muted mt" style={{ fontSize: 12 }}>{consumptionHistory
+              ? '上方为所选期间消费；下方累计保留全部历史定额、充值与逐月超支，资产重新起账不截断消费历史。'
+              : manualOpening ? `额度与已花包含 ${spendView.startDate.slice(0, 7)} 起账月的全部消费，更早月份仅查询；可在设置中恢复历史消费资金，启用完整累计。` : `额度与已花只计算 ${spendView.startDate} 起账后的新账范围。`}下方分类统计包含所选期间全部消费。</div>}
             {showSpendMonths && (
               <div className="cat-items">
                 {spendView.months.map((row) => (
@@ -108,7 +113,7 @@ export function SummaryPage() {
                       {row.month}
                       <span className="meta">
                         {' '}
-                        {row.historicalOnly ? `历史消费 ${fmtMoney(row.totalSpent ?? '0')}` : <>额度 {row.hasQuota ? fmtMoney(row.quota) : '未设'} · {row.startDate ? '新账已花' : '已花'} {fmtMoney(row.spent)}</>}
+                        {row.historicalOnly ? `历史消费 ${fmtMoney(row.totalSpent ?? '0')}` : <>额度 {row.hasQuota ? fmtMoney(row.quota) : '未设'} · {row.startDate && !consumptionHistory ? '新账已花' : '已花'} {fmtMoney(row.spent)}</>}
                       </span>
                     </span>
                     <b className={row.overspent ? 'neg' : ''}>
@@ -121,6 +126,16 @@ export function SummaryPage() {
           </>
         ) : (
           <div className="muted">暂无消费数据</div>
+        )}
+        {consumptionHistory && consumptionTotals.data && (
+          <div className="cat-items">
+            <div className="detail-sub mt">完整消费累计（截至 {refMonth}）</div>
+            <div className="sum-row"><span>累计消费定额</span><span>{fmtMoney(consumptionTotals.data.budget)}</span></div>
+            <div className="sum-row"><span>累计超额充值</span><span>{fmtMoney(consumptionTotals.data.excess)}</span></div>
+            <div className="sum-row"><span>累计已消费</span><span>{fmtMoney(consumptionTotals.data.spent)}</span></div>
+            <div className="sum-row total"><span>累计消费超支</span><b className={Number(consumptionTotals.data.overspend) > 0 ? 'neg' : ''}>{fmtMoney(consumptionTotals.data.overspend)}</b></div>
+            <div className="muted mt" style={{ fontSize: 12 }}>累计超支为各月 max(已花−当月定额, 0) 之和；超额充值不抵扣超支。这里包含资产起账前的消费资金，但不恢复旧资产对账。</div>
+          </div>
         )}
 
         {/* 消费分类 */}
@@ -246,7 +261,7 @@ export function SummaryPage() {
               </span>
             </div>
             <div className="brk">
-              <span>预充暂存(未花)</span>
+              <span>{consumptionHistory ? '消费充值对账余额' : '预充暂存(未花)'}</span>
               <span className={Number(r.prepaid) > 0 ? 'neg' : Number(r.prepaid) < 0 ? 'pos' : ''}>
                 {Number(r.prepaid) === 0 ? '0.00' : fmtSigned(-Number(r.prepaid))}
               </span>
@@ -326,8 +341,9 @@ export function SummaryPage() {
                 ? '人工预算期初已含开账基金市值和独立现金，不再重复叠加。对账预算先扣固定开账市值，再加当前市值，并扣确认后的累计净投入；实际加当前基金市值及独立现金。基金市值变化不算盈亏，也不会造成对账假差额。'
                 : <>基金市值等额进入对账预算基准和实际，不计算盈亏；基金预充是未包含在其他储蓄卡余额中的独立现金，当前余额进入实际{start ? '，起账时的基金现金同时计入预算期初' : ''}；{start ? '起账后' : '累计'}基金净投入从预算基准中扣除，本身不是资产。</>}
               消费超支=逐月
-              max(已花−当月消费预算, 0)；消费预充暂存=累计超额充值−累计超支−累计结转（累计结转{' '}
+              max(已花−当月消费预算, 0)；{consumptionHistory ? '消费充值对账余额' : '消费预充暂存'}=累计超额充值−累计超支−累计结转（{consumptionHistory ? '仅起账月之后的资产结转' : '累计结转'}{' '}
               {fmtMoney(r.carryover)}）。
+              {consumptionHistory && '消费资金仍按完整历史计算结转；起账月及此前的资金已包含在手工期初中，不再重复扣当前余额。对账余额不等同于消费账户实际剩余预充。'}
             </div>
             {!r.savingsFilled && (
               <div className="warn mt">部分储蓄卡未填该期真实额，总资产/差额暂不完整。</div>

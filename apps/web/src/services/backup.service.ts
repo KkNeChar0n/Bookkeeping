@@ -111,6 +111,7 @@ function normalizeBookkeepingStart(value: unknown): BookkeepingStartRow | null {
     (row.manualOpening !== undefined && row.manualOpening !== true) ||
     (row.fundOpeningConfirmed !== undefined && typeof row.fundOpeningConfirmed !== 'boolean') ||
     (row.fundOpeningConfirmed !== undefined && row.manualOpening !== true) ||
+    (row.consumptionHistory !== undefined && (row.consumptionHistory !== true || row.manualOpening !== true)) ||
     (row.manualOpening === true && (!row.startDate.endsWith('-01') || row.fundOpeningConfirmed === undefined))
   ) throw new Error('备份中的起账信息不正确');
   const ids = new Set<string>();
@@ -128,6 +129,7 @@ function normalizeBookkeepingStart(value: unknown): BookkeepingStartRow | null {
     openingFundMarketValue: row.openingFundMarketValue,
     openingSavings,
     ...(row.manualOpening ? { manualOpening: true as const, fundOpeningConfirmed: row.fundOpeningConfirmed } : {}),
+    ...(row.consumptionHistory ? { consumptionHistory: true as const } : {}),
   };
 }
 
