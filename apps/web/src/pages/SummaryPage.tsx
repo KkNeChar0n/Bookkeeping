@@ -10,7 +10,7 @@ import {
   useSpendStats,
 } from '../api/hooks';
 import { currentMonthStr, fmtMoney, fmtSigned } from '../lib/format';
-import type { ReconciliationMonthBreakdown } from '../services/reconciliation.service';
+import type { ReconciliationBreakdownRow } from '../services/reconciliation.service';
 
 export function SummaryPage() {
   const [mode, setMode] = useState<'month' | 'year'>('month');
@@ -255,23 +255,20 @@ export function SummaryPage() {
             <BreakdownGroup
               title="消费超支"
               total={r.overspend}
-              rows={breakdown.data?.months ?? []}
-              field="overspend"
+              rows={breakdown.data?.overspendMonths ?? []}
               invert
               refMonth={refMonth}
             />
             <BreakdownGroup
               title="收入差额"
               total={r.incomeDiff}
-              rows={breakdown.data?.months ?? []}
-              field="incomeDiff"
+              rows={breakdown.data?.incomeDiffMonths ?? []}
               refMonth={refMonth}
             />
             <BreakdownGroup
               title="资产变动"
               total={r.interest}
-              rows={breakdown.data?.months ?? []}
-              field="assetChange"
+              rows={breakdown.data?.assetChangeMonths ?? []}
               refMonth={refMonth}
             />
             {!r.savingsFilled && (
@@ -314,14 +311,12 @@ function BreakdownGroup({
   title,
   total,
   rows,
-  field,
   invert = false,
   refMonth,
 }: {
   title: string;
   total: string;
-  rows: ReconciliationMonthBreakdown[];
-  field: 'overspend' | 'incomeDiff' | 'assetChange';
+  rows: ReconciliationBreakdownRow[];
   invert?: boolean;
   refMonth: string;
 }) {
@@ -334,9 +329,9 @@ function BreakdownGroup({
       {rows.length > 0 && (
         <div className="cat-items brk-months">
           {rows.map((row) => (
-            <div className="brk" key={field + '-' + row.month}>
+            <div className="brk" key={title + '-' + row.month}>
               <span>{formatBreakdownMonth(row.month, refMonth)}</span>
-              <BreakdownValue value={row[field]} invert={invert} />
+              <BreakdownValue value={row.amount} invert={invert} />
             </div>
           ))}
         </div>

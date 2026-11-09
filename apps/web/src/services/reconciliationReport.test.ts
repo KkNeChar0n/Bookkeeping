@@ -206,24 +206,76 @@ test('difference breakdown lists continuous monthly increments whose totals matc
   const breakdown = await reconciliationService.breakdown('2026-10');
   assert.deepEqual(breakdown, {
     refMonth: '2026-10',
-    months: [
-      { month: '2026-09', overspend: '1.00', incomeDiff: '0.50', assetChange: '-1026.58' },
-      { month: '2026-10', overspend: '2.00', incomeDiff: '-1.00', assetChange: '0.23' },
+    overspendMonths: [
+      { month: '2026-09', amount: '1.00' },
+      { month: '2026-10', amount: '2.00' },
+    ],
+    incomeDiffMonths: [
+      { month: '2026-09', amount: '0.50' },
+      { month: '2026-10', amount: '-1.00' },
+    ],
+    assetChangeMonths: [
+      { month: '2026-09', amount: '-1026.58' },
+      { month: '2026-10', amount: '0.23' },
     ],
   });
   const cumulative = await reconciliationService.compute('2026-10');
   assert.equal(
-    breakdown.months.reduce((sum, row) => sum + Number(row.overspend), 0).toFixed(2),
+    breakdown.overspendMonths.reduce((sum, row) => sum + Number(row.amount), 0).toFixed(2),
     cumulative.overspend,
   );
   assert.equal(
-    breakdown.months.reduce((sum, row) => sum + Number(row.incomeDiff), 0).toFixed(2),
+    breakdown.incomeDiffMonths.reduce((sum, row) => sum + Number(row.amount), 0).toFixed(2),
     cumulative.incomeDiff,
   );
   assert.equal(
-    breakdown.months.reduce((sum, row) => sum + Number(row.assetChange), 0).toFixed(2),
+    breakdown.assetChangeMonths.reduce((sum, row) => sum + Number(row.amount), 0).toFixed(2),
     cumulative.interest,
   );
+});
+
+test('consumption overspend keeps July through September separate from an October asset restart', async () => {
+  await db.bookkeepingStart.put({
+    id: 'active',
+    startDate: '2026-10-01',
+    createdAt: 1,
+    manualOpening: true,
+    consumptionHistory: true,
+    openingSavings: [],
+  });
+  await setBalance('2026-10', '2000');
+  for (const [index, month] of ['2026-07', '2026-08', '2026-09', '2026-10'].entries()) {
+    await db.consumptionBudgets.add({
+      id: 'quota-' + month,
+      savingsCardId: cardId,
+      month,
+      amount: 100,
+      updatedAt: index + 1,
+    });
+    await db.transactions.add({
+      id: 'spent-' + month,
+      cardId: VIRTUAL_CONSUMPTION_CARD_ID,
+      date: month + '-10',
+      type: 'OUT',
+      amount: -200,
+      category: null,
+      note: null,
+      peerCardId: null,
+      transferGroupId: null,
+      createdAt: index + 1,
+    });
+  }
+
+  const breakdown = await reconciliationService.breakdown('2026-10');
+  assert.deepEqual(breakdown.overspendMonths, [
+    { month: '2026-07', amount: '1.00' },
+    { month: '2026-08', amount: '1.00' },
+    { month: '2026-09', amount: '1.00' },
+    { month: '2026-10', amount: '1.00' },
+  ]);
+  assert.deepEqual(breakdown.incomeDiffMonths, [{ month: '2026-10', amount: '0.00' }]);
+  assert.deepEqual(breakdown.assetChangeMonths, [{ month: '2026-10', amount: '0.00' }]);
+  assert.equal((await reconciliationService.compute('2026-10')).overspend, '4.00');
 });
 
 test('carried savings balances produce a saved-data comparison with explicit sources', async () => {

@@ -39,16 +39,16 @@ export interface ReconciliationReport extends Reconciliation {
   interestChange: InterestChange;
 }
 
-export interface ReconciliationMonthBreakdown {
+export interface ReconciliationBreakdownRow {
   month: string;
-  overspend: string;
-  incomeDiff: string;
-  assetChange: string | null;
+  amount: string | null;
 }
 
 export interface ReconciliationBreakdown {
   refMonth: string;
-  months: ReconciliationMonthBreakdown[];
+  overspendMonths: ReconciliationBreakdownRow[];
+  incomeDiffMonths: ReconciliationBreakdownRow[];
+  assetChangeMonths: ReconciliationBreakdownRow[];
 }
 
 function thisMonth(): string {
@@ -198,9 +198,18 @@ export const reconciliationService = {
   /** 将累计差额拆成连续月份增量；只读，不写入或修正任何账本数据。 */
   async breakdown(refMonth?: string): Promise<ReconciliationBreakdown> {
     const ref = refMonth || thisMonth();
-    const start = await getBookkeepingStart();
+    const [start, overspendRows] = await Promise.all([
+      getBookkeepingStart(),
+      consumptionBudgetService.overspendByMonth(ref),
+    ]);
+    const overspendMonths = overspendRows.map((row) => ({
+      month: row.month,
+      amount: fromCents(row.overspend),
+    }));
     const startMonth = start?.startDate.slice(0, 7);
-    if (startMonth && ref < startMonth) return { refMonth: ref, months: [] };
+    if (startMonth && ref < startMonth) {
+      return { refMonth: ref, overspendMonths, incomeDiffMonths: [], assetChangeMonths: [] };
+    }
 
     let firstMonth = startMonth;
     if (!firstMonth) {
@@ -230,7 +239,16 @@ export const reconciliationService = {
 
     return {
       refMonth: ref,
-      months: months.map((month, index) => {
+      overspendMonths,
+      incomeDiffMonths: months.map((month, index) => {
+        const previous = results[index];
+        const current = results[index + 1];
+        return {
+          month,
+          amount: fromCents(toCents(current.incomeDiff) - toCents(previous.incomeDiff)),
+        };
+      }),
+      assetChangeMonths: months.map((month, index) => {
         const previous = results[index];
         const current = results[index + 1];
         const opening = startMonth === month;
@@ -243,9 +261,7 @@ export const reconciliationService = {
             : null;
         return {
           month,
-          overspend: fromCents(toCents(current.overspend) - toCents(previous.overspend)),
-          incomeDiff: fromCents(toCents(current.incomeDiff) - toCents(previous.incomeDiff)),
-          assetChange,
+          amount: assetChange,
         };
       }),
     };

@@ -158,19 +158,23 @@ test('summary groups difference totals with direct monthly rows and no standalon
     });
     queryClient.setQueryData(['reconciliation', 'breakdown', month], {
       refMonth: month,
-      months: [
+      overspendMonths: [
         {
           month: addMonths(month, -1),
-          overspend: '0.50',
-          incomeDiff: '1.50',
-          assetChange: '0.75',
+          amount: '0.50',
         },
         {
           month,
-          overspend: '1.50',
-          incomeDiff: '2.50',
-          assetChange: '1.25',
+          amount: '1.50',
         },
+      ],
+      incomeDiffMonths: [
+        { month: addMonths(month, -1), amount: '1.50' },
+        { month, amount: '2.50' },
+      ],
+      assetChangeMonths: [
+        { month: addMonths(month, -1), amount: '0.75' },
+        { month, amount: '1.25' },
       ],
     });
   });

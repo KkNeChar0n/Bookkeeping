@@ -18,6 +18,12 @@ function prevMonth(month: string): string {
   return `${Math.floor(index / 12)}-${String((index % 12) + 1).padStart(2, '0')}`;
 }
 
+function nextMonth(month: string): string {
+  const [year, value] = month.split('-').map(Number);
+  const index = year * 12 + value;
+  return String(Math.floor(index / 12)) + '-' + String((index % 12) + 1).padStart(2, '0');
+}
+
 async function monthlyTotals(upTo: string) {
   const [budgets, excessRows, transactions, start, cards] = await Promise.all([
     db.consumptionBudgets.toArray(),
@@ -224,5 +230,25 @@ export const consumptionBudgetService = {
       overspendPos: values.overspendPos,
       buffer: values.bufferEnd,
     };
+  },
+
+  /** 完整消费口径的逐月超支；不受资产重新起账月份截断。 */
+  async overspendByMonth(refMonth: string): Promise<{ month: string; overspend: Cents }[]> {
+    const values = await monthlyTotals(refMonth);
+    const firstMonth = values.months[0];
+    if (!firstMonth) return [];
+    const rows: { month: string; overspend: Cents }[] = [];
+    let prepaid = 0;
+    for (let month = firstMonth; month <= refMonth; month = nextMonth(month)) {
+      const totals = consumptionMonthTotals({
+        budget: values.budgetByMonth.get(month) ?? 0,
+        excess: values.excessByMonth.get(month) ?? 0,
+        spent: values.spentByMonth.get(month) ?? 0,
+        prepaidStart: prepaid,
+      });
+      rows.push({ month, overspend: totals.overspend });
+      prepaid = totals.prepaidEnd;
+    }
+    return rows;
   },
 };
