@@ -17,9 +17,6 @@ export const bookkeepingRestartService = {
         createdAt: nowTs(),
         manualOpening: true,
         consumptionHistory: true,
-        fundOpeningConfirmed: false,
-        openingFundPrepaid: 0,
-        openingFundMarketValue: 0,
         openingSavings: [],
       };
       const keptTables = new Set([

@@ -426,16 +426,13 @@ export function useSpendPeriod(prefix: string) {
     queryFn: () => spendService.periodView(prefix),
   });
 }
-// ---- 全局基金储蓄池：当前市值 / 预充金额 / 本月净投入 ----
+// ---- 基金：仅保存月度当前市值 ----
 export function useSetFundSavings() {
   const inv = useInvalidateLedger();
   return useMutation({
     mutationFn: (body: {
       month?: string;
       marketValue: string;
-      prepaid: string;
-      netInvestment?: string;
-      flowBaseline?: boolean;
     }) => fundSavingsService.set(body),
     onSuccess: inv,
   });

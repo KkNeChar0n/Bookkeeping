@@ -217,37 +217,27 @@ test('fund savings overwrites a month and carries the latest values forward', as
   await fundSavingsService.set({
     month: '2026-09',
     marketValue: '110.00',
-    prepaid: '20.00',
   });
   await fundSavingsService.set({
     month: '2026-10',
     marketValue: '170.00',
-    prepaid: '30.00',
   });
   await fundSavingsService.set({
     month: '2026-09',
     marketValue: '120.00',
-    prepaid: '25.00',
   });
 
   assert.deepEqual(await fundSavingsService.get('2026-08'), {
     month: '2026-08',
     sourceMonth: null,
     marketValue: '0.00',
-    prepaid: '0.00',
-    total: '0.00',
-    netInvestment: null,
-    netInvestmentFilled: false,
-    cumulativeNetInvestment: '0.00',
-    missingNetInvestmentMonths: [],
-    isFlowBaseline: false,
-    flowBaselineMonth: null,
+    legacyPrepaidSnapshots: [],
     marketValueFilled: false,
     filled: false,
     updatedAt: null,
   });
-  assert.equal((await fundSavingsService.get('2026-09')).total, '145.00');
-  assert.equal((await fundSavingsService.get('2026-11')).total, '200.00');
+  assert.equal((await fundSavingsService.get('2026-09')).marketValue, '120.00');
+  assert.equal((await fundSavingsService.get('2026-11')).marketValue, '170.00');
   assert.equal(await db.fundSavingsSnapshots.count(), 2);
 
   db.close();

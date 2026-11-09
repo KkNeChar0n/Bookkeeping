@@ -551,6 +551,20 @@ test('backup strictly sanitizes reconciliation markers and baseline net investme
   ]);
 });
 
+test('current backups may contain market-value-only fund snapshots', () => {
+  const result = normalizeBackupData({
+    ...source,
+    fundSavingsSnapshots: [
+      { month: '2026-10', marketValue: 2_596_064, updatedAt: 1 },
+      { month: '2026-11', marketValue: 2_596_064, marketValueKnown: false, updatedAt: 2 },
+    ],
+  });
+  assert.deepEqual(result.fundSavingsSnapshots, [
+    { month: '2026-10', marketValue: 2_596_064, updatedAt: 1 },
+    { month: '2026-11', marketValue: 2_596_064, marketValueKnown: false, updatedAt: 2 },
+  ]);
+});
+
 test('backup normalization drops orphan history and broken transfer groups', () => {
   const result = normalizeBackupData({
     app: 'bookkeeping',
@@ -923,8 +937,6 @@ test('damaged restart metadata is rejected before any existing ledger data is re
       { manualOpening: 'true' },
       { fundOpeningConfirmed: true },
       { manualOpening: true, fundOpeningConfirmed: 'true' },
-      { manualOpening: true, fundOpeningConfirmed: false },
-      { manualOpening: true, startDate: '2026-10-01' },
       { consumptionHistory: true },
       { consumptionHistory: false },
       { consumptionHistory: 'true' },
@@ -992,29 +1004,19 @@ test('cumulative manual consumption scope survives full backup round-trips witho
   } finally { db.close(); await db.delete(); }
 });
 
-test('a damaged confirmed manual fund opening is rejected before replacing the active ledger', async () => {
+test('legacy confirmed fund opening imports even when its obsolete baseline snapshot is absent', async () => {
   db.close();
   await db.delete();
   await db.open();
   try {
     await db.bookkeepingStart.put(bookkeepingStart);
-    const before = await backupService.exportAll();
     const confirmed: BookkeepingStartRow = {
       ...bookkeepingStart, startDate: '2026-10-01', manualOpening: true, fundOpeningConfirmed: true,
       openingSavings: [],
     };
-    for (const fundSavingsSnapshots of [
-      undefined,
-      [],
-      [{ month: '2026-11', marketValue: 5_000, prepaid: 1_000, netInvestment: 0, updatedAt: 1 }],
-      [{ month: '2026-10', marketValue: -1, prepaid: 1_000, netInvestment: 0, updatedAt: 1 }],
-    ]) {
-      await assert.rejects(backupService.importAll({
-        ...source, bookkeepingStart: confirmed, fundSavingsSnapshots,
-      }), /基金开账/);
-      const after = await backupService.exportAll();
-      assert.deepEqual({ ...after, exportedAt: '' }, { ...before, exportedAt: '' });
-    }
+    await backupService.importAll({ ...source, bookkeepingStart: confirmed, fundSavingsSnapshots: [] });
+    assert.deepEqual(await db.bookkeepingStart.get('active'), confirmed);
+    assert.equal(await db.fundSavingsSnapshots.count(), 0);
   } finally { db.close(); await db.delete(); }
 });
 

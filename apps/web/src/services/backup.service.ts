@@ -105,14 +105,14 @@ function normalizeBookkeepingStart(value: unknown): BookkeepingStartRow | null {
     row.id !== 'active' ||
     !isCalendarDate(row.startDate) ||
     !isNonnegativeInteger(row.createdAt) ||
-    !isNonnegativeInteger(row.openingFundPrepaid) ||
-    !isNonnegativeInteger(row.openingFundMarketValue) ||
+    (row.openingFundPrepaid !== undefined && !isNonnegativeInteger(row.openingFundPrepaid)) ||
+    (row.openingFundMarketValue !== undefined && !isNonnegativeInteger(row.openingFundMarketValue)) ||
     !Array.isArray(row.openingSavings) ||
     (row.manualOpening !== undefined && row.manualOpening !== true) ||
     (row.fundOpeningConfirmed !== undefined && typeof row.fundOpeningConfirmed !== 'boolean') ||
     (row.fundOpeningConfirmed !== undefined && row.manualOpening !== true) ||
     (row.consumptionHistory !== undefined && (row.consumptionHistory !== true || row.manualOpening !== true)) ||
-    (row.manualOpening === true && (!row.startDate.endsWith('-01') || row.fundOpeningConfirmed === undefined))
+    (row.manualOpening === true && !row.startDate.endsWith('-01'))
   ) throw new Error('备份中的起账信息不正确');
   const ids = new Set<string>();
   const openingSavings = row.openingSavings.map((entry) => {
@@ -125,10 +125,11 @@ function normalizeBookkeepingStart(value: unknown): BookkeepingStartRow | null {
   });
   return {
     id: 'active', startDate: row.startDate, createdAt: row.createdAt,
-    openingFundPrepaid: row.openingFundPrepaid,
-    openingFundMarketValue: row.openingFundMarketValue,
     openingSavings,
-    ...(row.manualOpening ? { manualOpening: true as const, fundOpeningConfirmed: row.fundOpeningConfirmed } : {}),
+    ...(row.openingFundPrepaid !== undefined ? { openingFundPrepaid: row.openingFundPrepaid } : {}),
+    ...(row.openingFundMarketValue !== undefined ? { openingFundMarketValue: row.openingFundMarketValue } : {}),
+    ...(row.manualOpening ? { manualOpening: true as const } : {}),
+    ...(row.fundOpeningConfirmed !== undefined ? { fundOpeningConfirmed: row.fundOpeningConfirmed } : {}),
     ...(row.consumptionHistory ? { consumptionHistory: true as const } : {}),
   };
 }
@@ -358,16 +359,17 @@ export function normalizeBackupData(data: BackupData): NormalizedBackupData {
     if (
       !isValidMonth(row.month) ||
       !Number.isSafeInteger(row.marketValue) ||
-      !Number.isSafeInteger(row.prepaid) ||
+      (row.prepaid !== undefined && !Number.isSafeInteger(row.prepaid)) ||
       row.marketValue < 0 ||
-      row.prepaid < 0
+      (row.prepaid !== undefined && row.prepaid < 0)
     ) {
       continue;
     }
-    const { netInvestment, flowBaseline, marketValueKnown, ...balance } = row;
+    const { prepaid, netInvestment, flowBaseline, marketValueKnown, ...balance } = row;
     const hasFlowBaseline = flowBaseline === 1;
     const sanitized: FundSavingsSnapshotRow = {
       ...balance,
+      ...(prepaid !== undefined ? { prepaid } : {}),
       ...(hasFlowBaseline
         ? { flowBaseline: 1 as const }
         : typeof netInvestment === 'number' && Number.isSafeInteger(netInvestment)
@@ -386,12 +388,6 @@ export function normalizeBackupData(data: BackupData): NormalizedBackupData {
         exportedMonth,
         exportedAt,
       );
-  if (
-    bookkeepingStart?.manualOpening && bookkeepingStart.fundOpeningConfirmed &&
-    !fundSavingsSnapshots.some((row) => row.month === bookkeepingStart.startDate.slice(0, 7))
-  ) {
-    throw new Error('备份中的基金开账已确认，但起账月份的基金记录缺失或损坏');
-  }
   const finalCards = cards.filter((card) => card.type !== 'FUND');
   const preliminary = {
     budgetLines: keep(normalized.budgetLines, plan.budgetLineIds),

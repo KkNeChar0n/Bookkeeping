@@ -19,6 +19,7 @@ import { spendService } from './spend.service';
 import { txService } from './transactions.service';
 
 const cardId = 'restart-bank';
+const fundCashCardId = 'restart-fund-cash';
 const snapshot = () => Promise.all(db.tables.map(async (t) => ({ name: t.name, rows: await t.toArray() })));
 
 async function expense(id: string, amount: number, date = todayStr(), archived?: boolean) {
@@ -30,6 +31,16 @@ async function expense(id: string, amount: number, date = todayStr(), archived?:
 }
 
 /** 用户手动填写：期初 = 银行100 + 定额20 + 超额5 + 市值50 + 基金现金10。 */
+async function setFundCash(month: string, amount: string) {
+  if (!(await db.cards.get(fundCashCardId))) {
+    await db.cards.add({
+      id: fundCashCardId, name: '基金资金卡', type: 'SAVINGS', initialBalance: 0,
+      isDefault: 0, sortOrder: 2, createdAt: 2,
+    });
+  }
+  await savingsActualService.setAmount({ cardId: fundCashCardId, month, amount });
+}
+
 async function fillManualOpening() {
   const month = currentMonthStr();
   await cardsService.update(cardId, { initialBalance: '185' });
@@ -37,7 +48,8 @@ async function fillManualOpening() {
   await consumptionBudgetService.setBudget({ savingsCardId: cardId, month, amount: '20' });
   await savingsEntryService.setEntry({ cardId, month, kind: 'EXCESS', amount: '5' });
   await savingsActualService.setAmount({ cardId, month, amount: '100' });
-  await fundSavingsService.set({ month, marketValue: '50', prepaid: '10', netInvestment: '0' });
+  await setFundCash(month, '10');
+  await fundSavingsService.set({ month, marketValue: '50' });
 }
 
 /** Backups created before cumulative-consumption support retain their old scope. */
@@ -68,7 +80,7 @@ test('manual restart deletes old assets but retains historical consumption quota
   await consumptionBudgetService.setBudget({ savingsCardId: cardId, month: previous, amount: '20' });
   await consumptionBudgetService.setBudget({ savingsCardId: cardId, month, amount: '20' });
   await consumptionBudgetService.setBudget({ savingsCardId: cardId, month: future, amount: '10' });
-  await fundSavingsService.set({ month, marketValue: '88', prepaid: '20', netInvestment: '77' });
+  await fundSavingsService.set({ month, marketValue: '88' });
   await db.budgetSnapshots.add({ id: 'old-snapshot', date: todayStr(), note: null, createdAt: 1 });
   await db.budgetLines.add({ id: 'old-line', snapshotId: 'old-snapshot', cardId, inAmount: 300, outAmount: 100 });
   await db.initialBalanceLogs.add({ id: 'old-initial-log', cardId, previousAmount: 1, amount: 2, createdAt: 1 });
@@ -82,9 +94,9 @@ test('manual restart deletes old assets but retains historical consumption quota
   assert.equal(start.startDate, `${month}-01`);
   assert.equal(start.manualOpening, true);
   assert.equal(start.consumptionHistory, true);
-  assert.equal(start.fundOpeningConfirmed, false);
-  assert.equal(start.openingFundPrepaid, 0);
-  assert.equal(start.openingFundMarketValue, 0);
+  assert.equal(start.fundOpeningConfirmed, undefined);
+  assert.equal(start.openingFundPrepaid, undefined);
+  assert.equal(start.openingFundMarketValue, undefined);
   assert.deepEqual(start.openingSavings, []);
   for (const table of db.tables) {
     if (['cards', 'categories', 'transactions', 'bookkeepingStart', 'consumptionBudgets', 'savingsEntries'].includes(table.name)) continue;
@@ -118,7 +130,6 @@ test('manual opening includes the fund total once and leaves only excess recharg
   assert.equal(report.overspend, '0.00');
   assert.equal(report.prepaid, '5.00');
   assert.equal(report.interest, '0.00');
-  assert.equal(report.fundCumulativeNetInvestment, '0.00');
   assert.equal(report.interestChange.previousInterest, '0.00');
   assert.equal(report.interestChange.amount, '0.00');
 });
@@ -159,7 +170,7 @@ test('legacy manual opening without consumption-history flag carries excess with
   await budgetPlanService.addDetail({ cardId, month: next, label: '次月消费预算', kind: 'EXPENSE', amount: '20' });
   await consumptionBudgetService.setBudget({ savingsCardId: cardId, month: next, amount: '20' });
   await savingsActualService.setAmount({ cardId, month: next, amount: '81' });
-  await fundSavingsService.set({ month: next, marketValue: '50', prepaid: '10', netInvestment: '0' });
+  await fundSavingsService.set({ month: next, marketValue: '50' });
   const funding = await consumptionBudgetService.fundingForMonth(next);
   assert.equal(funding.prepaidStart, '1.00');
   assert.equal(funding.rows[0].newTransfer, '19.00');
@@ -203,7 +214,8 @@ test('cumulative consumption survives manual restart without counting historical
   await cardsService.update(cardId, { initialBalance: '240' });
   await budgetPlanService.addDetail({ cardId, month, label: '累计消费预算', kind: 'EXPENSE', amount: '60' });
   await savingsActualService.setAmount({ cardId, month, amount: '100' });
-  await fundSavingsService.set({ month, marketValue: '50', prepaid: '10', netInvestment: '0' });
+  await setFundCash(month, '10');
+  await fundSavingsService.set({ month, marketValue: '50' });
   const opening = await reconciliationService.report(month);
   assert.equal(opening.budgetTotal, '180.00');
   assert.equal(opening.actualTotal, '160.00');
@@ -217,7 +229,8 @@ test('cumulative consumption survives manual restart without counting historical
   await budgetPlanService.addDetail({ cardId, month: next, label: '下月完整消费预算', kind: 'EXPENSE', amount: '20' });
   await expense('next-consumption', 2000, `${next}-01`);
   await savingsActualService.setAmount({ cardId, month: next, amount: '82' });
-  await fundSavingsService.set({ month: next, marketValue: '50', prepaid: '10', netInvestment: '0' });
+  await setFundCash(next, '10');
+  await fundSavingsService.set({ month: next, marketValue: '50' });
   const funding = await consumptionBudgetService.fundingForMonth(next);
   assert.equal(funding.prepaidStart, '2.00');
   assert.equal(funding.rows[0].carry, '2.00');
@@ -233,24 +246,23 @@ test('cumulative consumption survives manual restart without counting historical
   assert.equal(following.interestChange.amount, '0.00');
 });
 
-test('unconfirmed manual fund opening prevents a false complete reconciliation', async () => {
+test('manual opening no longer requires a separate fund confirmation', async () => {
   await bookkeepingRestartService.restart();
   await cardsService.update(cardId, { initialBalance: '100' });
   await savingsActualService.setAmount({ cardId, month: currentMonthStr(), amount: '100' });
   const report = await reconciliationService.report(currentMonthStr());
-  assert.equal(report.fundNetInvestmentFilled, false);
-  assert.equal(report.interestChange.amount, null);
-  assert.ok(report.interestChange.unavailableReason);
+  assert.equal(report.interestChange.amount, '0.00');
+  assert.equal(report.interestChange.unavailableReason, null);
 });
 
-test('a missing confirmed fund snapshot cannot produce a complete residual report', async () => {
+test('a missing fund snapshot means zero market value without a cash-flow gate', async () => {
   await bookkeepingRestartService.restart();
   await fillManualOpening();
   await db.fundSavingsSnapshots.clear();
   const report = await reconciliationService.report(currentMonthStr());
-  assert.equal(report.fundNetInvestmentFilled, false);
-  assert.equal(report.interestChange.amount, null);
-  assert.deepEqual(report.fundMissingNetInvestmentMonths, [currentMonthStr()]);
+  assert.equal(report.fundMarketValue, '0.00');
+  assert.equal(report.fundMarketValueFilled, true);
+  assert.notEqual(report.interestChange.amount, null);
 });
 
 test('manual consumption scope follows the edited month rather than a stale historical marker', async () => {
@@ -293,61 +305,56 @@ test('recharge and adjustment transactions are deleted, not retained in an old l
   assert.equal(await db.ledgerArchives.count(), 0);
 });
 
-test('first manual fund entry requires an explicit current-month snapshot with known market value and exact zero net investment', async () => {
+test('fund market value can be saved in any active month without opening or flow inputs', async () => {
   const month = currentMonthStr();
   await bookkeepingRestartService.restart();
-  const before = await snapshot();
-  for (const invalid of [
-    { month: addMonths(month, 1), marketValue: '50', prepaid: '10', netInvestment: '0' },
-    { month, marketValue: '', prepaid: '10', netInvestment: '0' },
-    { month, marketValue: '50', prepaid: '10' },
-    { month, marketValue: '50', prepaid: '10', netInvestment: '1' },
-    { month, marketValue: '50', prepaid: '10', netInvestment: '0.001' },
-    { month, marketValue: '50', prepaid: '10', netInvestment: '0', flowBaseline: true },
-  ]) {
-    await assert.rejects(fundSavingsService.set(invalid));
-    assert.deepEqual(await snapshot(), before);
-  }
-  await fundSavingsService.set({ month, marketValue: '0', prepaid: '0', netInvestment: '0' });
-  assert.equal((await bookkeepingRestartService.current())?.fundOpeningConfirmed, true);
+  await fundSavingsService.set({ month: addMonths(month, 1), marketValue: '50' });
+  await fundSavingsService.set({ month, marketValue: '' });
+  assert.equal((await fundSavingsService.get(addMonths(month, 1))).marketValue, '50.00');
+  assert.equal((await fundSavingsService.get(month)).marketValueFilled, false);
+  assert.equal((await bookkeepingRestartService.current())?.fundOpeningConfirmed, undefined);
 });
 
-test('first fund baseline and snapshot commit atomically, and later edits never rewrite the confirmed opening', async () => {
+test('fund market snapshot writes atomically and never rewrites bookkeeping opening metadata', async () => {
   const month = currentMonthStr();
   await bookkeepingRestartService.restart();
   const before = await snapshot();
   const fail = () => { throw new Error('simulated fund snapshot failure'); };
   db.fundSavingsSnapshots.hook('creating', fail);
   try {
-    await assert.rejects(fundSavingsService.set({ month, marketValue: '50', prepaid: '10', netInvestment: '0' }), /simulated fund snapshot failure/);
+    await assert.rejects(fundSavingsService.set({ month, marketValue: '50' }), /simulated fund snapshot failure/);
   } finally {
     db.fundSavingsSnapshots.hook('creating').unsubscribe(fail);
   }
   assert.deepEqual(await snapshot(), before);
-  await fundSavingsService.set({ month, marketValue: '50', prepaid: '10', netInvestment: '0' });
-  await fundSavingsService.set({ month, marketValue: '85', prepaid: '0', netInvestment: '20' });
-  await fundSavingsService.set({ month: addMonths(month, 1), marketValue: '120', prepaid: '2', netInvestment: '30' });
+  await fundSavingsService.set({ month, marketValue: '50' });
+  await fundSavingsService.set({ month, marketValue: '85' });
+  await fundSavingsService.set({ month: addMonths(month, 1), marketValue: '120' });
   const start = await bookkeepingRestartService.current();
-  assert.equal(start?.openingFundMarketValue, 5000);
-  assert.equal(start?.openingFundPrepaid, 1000);
-  assert.equal(start?.fundOpeningConfirmed, true);
-  assert.equal((await fundSavingsService.get(month)).cumulativeNetInvestment, '20.00');
-  assert.equal((await fundSavingsService.get(addMonths(month, 1))).cumulativeNetInvestment, '50.00');
+  assert.equal(start?.openingFundMarketValue, undefined);
+  assert.equal(start?.openingFundPrepaid, undefined);
+  assert.equal(start?.fundOpeningConfirmed, undefined);
+  assert.equal((await fundSavingsService.get(month)).marketValue, '85.00');
+  assert.equal((await fundSavingsService.get(addMonths(month, 1))).marketValue, '120.00');
 });
 
-test('cash transfers, fund buys and market changes are neutral after manual opening while bank interest remains visible', async () => {
+test('cash transfers and fund buys are neutral while market changes and bank interest remain visible', async () => {
   const month = currentMonthStr();
   await bookkeepingRestartService.restart();
   await fillManualOpening();
   await savingsActualService.setAmount({ cardId, month, amount: '90' });
-  await fundSavingsService.set({ month, marketValue: '50', prepaid: '20', netInvestment: '0' });
+  await setFundCash(month, '20');
+  await fundSavingsService.set({ month, marketValue: '50' });
   assert.equal((await reconciliationService.compute(month)).interest, '0.00');
-  await fundSavingsService.set({ month, marketValue: '85', prepaid: '0', netInvestment: '20' });
+  await setFundCash(month, '0');
+  await fundSavingsService.set({ month, marketValue: '70' });
   assert.equal((await reconciliationService.compute(month)).interest, '0.00');
+  await fundSavingsService.set({ month, marketValue: '85' });
+  assert.equal((await reconciliationService.compute(month)).interest, '15.00');
   await savingsActualService.setAmount({ cardId, month, amount: '91' });
   const report = await reconciliationService.report(month);
-  assert.equal(report.interest, '1.00');
-  assert.equal(report.interestChange.amount, '1.00');
+  assert.equal(report.interest, '16.00');
+  assert.equal(report.interestChange.amount, '16.00');
 });
 
 test('historical asset comparisons are unavailable instead of using the newly hand-entered initial balance', async () => {
@@ -398,7 +405,7 @@ test('external backups restore both the cleared old ledger and the manual openin
   const firstStart = await bookkeepingRestartService.current();
   const saved = await backupService.exportAll();
   await bookkeepingRestartService.restart();
-  assert.equal((await bookkeepingRestartService.current())?.fundOpeningConfirmed, false);
+  assert.equal((await bookkeepingRestartService.current())?.fundOpeningConfirmed, undefined);
   assert.equal((await db.cards.get(cardId))?.initialBalance, 0);
   assert.equal(await db.ledgerArchives.count(), 0);
   assert.equal(await db.transactions.count(), 2);

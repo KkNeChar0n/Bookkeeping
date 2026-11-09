@@ -105,7 +105,7 @@ test('asset writers reject archived months before deleting or overwriting any ro
     () => savingsEntryService.add({ cardId: 'bank', month, kind: 'INCOME', amount: '10' }),
     () => savingsEntryService.setEntry({ cardId: 'bank', month, kind: 'EXCESS', amount: '0' }),
     () => consumptionBudgetService.setBudget({ savingsCardId: 'bank', month, amount: '0' }),
-    () => fundSavingsService.set({ month, marketValue: '10', prepaid: '0', netInvestment: '0' }),
+    () => fundSavingsService.set({ month, marketValue: '10' }),
   ];
   for (const write of writes) await assert.rejects(write(), /新账从/);
   assert.equal(await db.budgetDetails.count(), 0);
@@ -113,9 +113,10 @@ test('asset writers reject archived months before deleting or overwriting any ro
   assert.equal(await db.savingsEntries.count(), 0);
   assert.equal(await db.consumptionBudgets.count(), 0);
   assert.equal(await db.fundSavingsSnapshots.count(), 0);
-  await assert.rejects(fundSavingsService.set({
-    month: '2026-10', marketValue: '50', prepaid: '10', flowBaseline: true,
-  }), /不能再设置历史对账起点/);
+  await fundSavingsService.set({ month: '2026-10', marketValue: '50' });
+  assert.deepEqual(Object.keys((await db.fundSavingsSnapshots.get('2026-10'))!).sort(), [
+    'marketValue', 'month', 'updatedAt',
+  ]);
   await budgetPlanService.addDetail({ cardId: 'bank', month: '2026-10', label: '', kind: 'IN', amount: '10' });
   await savingsActualService.setAmount({ cardId: 'bank', month: '2026-10', amount: '110' });
   assert.equal(await budgetPlanService.expectedBalance('bank', '2026-10'), 11_000);
@@ -160,11 +161,13 @@ test('asset reads and fund net investments ignore historical rows even if an imp
   assert.deepEqual((await savingsActualService.list('bank')).map((row) => row.month), ['2026-10']);
   const historicalFund = await fundSavingsService.get('2026-09');
   assert.equal(historicalFund.filled, false);
-  assert.equal(historicalFund.cumulativeNetInvestment, '0.00');
+  assert.deepEqual(historicalFund.legacyPrepaidSnapshots, [
+    { month: '2026-10', amount: '0.00' },
+    { month: '2026-11', amount: '0.00' },
+  ].filter((row) => row.amount !== '0.00'));
   const activeFund = await fundSavingsService.get('2026-11');
-  assert.equal(activeFund.cumulativeNetInvestment, '20.00');
-  assert.equal(activeFund.flowBaselineMonth, null);
-  assert.equal(activeFund.netInvestment, '10.00');
+  assert.equal(activeFund.marketValue, '70.00');
+  assert.deepEqual(activeFund.legacyPrepaidSnapshots, []);
   assert.equal((await fundSavingsService.list()).length, 2);
 });
 
@@ -237,7 +240,7 @@ test('cumulative manual history permits quota and excess corrections without reo
     () => savingsEntryService.setEntry({ cardId: 'bank', month, kind: 'INCOME', amount: '10' }),
     () => savingsLogService.add({ cardId: 'bank', month, field: 'AMOUNT', amount: '10' }),
     () => savingsLogService.add({ cardId: 'bank', month, field: 'INCOME', amount: '10' }),
-    () => fundSavingsService.set({ month, marketValue: '10', prepaid: '0', netInvestment: '0' }),
+    () => fundSavingsService.set({ month, marketValue: '10' }),
   ]) await assert.rejects(write(), /新账从/);
   assert.equal(await db.budgetDetails.count(), 0);
   assert.equal(await db.savingsActuals.count(), 0);

@@ -72,7 +72,7 @@ export function ConsumptionHistoryRecoveryPanel() {
   const submit = async () => {
     if (working.current || !preview || source === undefined || !backupPrepared || !backupConfirmed || !confirmed) return;
     if (!window.confirm(
-      `将从所选备份补回截至 ${preview.throughMonth} 缺失的各月消费定额和超额充值，并启用完整历史累计消费口径。\n\n已存在的卡片月份资金值保持不变。不导入旧消费流水、预算、储蓄余额、收入、基金或修改日志，不改当前真实资产和固定基金基准。\n\n启用后请按累计定额与累计充值检查手工预算期初；不会自动调整或调平。确定继续？`,
+      `将从所选备份补回截至 ${preview.throughMonth} 缺失的各月消费定额和超额充值，并启用完整历史累计消费口径。\n\n已存在的卡片月份资金值保持不变。不导入旧消费流水、预算、储蓄余额、收入、基金或修改日志，不改当前真实资产和基金市值。\n\n启用后请按累计定额与累计充值检查手工预算期初；不会自动调整或调平。确定继续？`,
     )) return;
     working.current = true;
     setBusy(true);

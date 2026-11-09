@@ -86,41 +86,37 @@ test('unfilled savings remain unavailable rather than using future or zero balan
   assert.match(report.interestChange.unavailableReason ?? '', /2026-10/);
 });
 
-test('a missing current fund investment prevents a complete monthly change', async () => {
+test('fund snapshots no longer require monthly investment inputs', async () => {
   await setBalance('2026-09', '2000');
   await setBalance('2026-10', '2000');
-  await fundSavingsService.set({
-    month: '2026-09', marketValue: '50', prepaid: '0', netInvestment: '0',
-  });
-  await fundSavingsService.set({ month: '2026-10', marketValue: '50', prepaid: '0' });
+  await fundSavingsService.set({ month: '2026-09', marketValue: '50' });
+  await fundSavingsService.set({ month: '2026-10', marketValue: '50' });
 
   const report = await reconciliationService.report('2026-10');
-  assert.equal(report.fundNetInvestmentFilled, false);
-  assert.equal(report.interestChange.previousInterest, '0.00');
-  assert.equal(report.interestChange.amount, null);
-  assert.match(report.interestChange.unavailableReason ?? '', /2026-10.*基金净投入/);
+  assert.equal(report.interestChange.previousInterest, '50.00');
+  assert.equal(report.interestChange.amount, '0.00');
+  assert.equal(report.interestChange.unavailableReason, null);
 });
 
-test('an incomplete previous fund month remains unavailable even after a new baseline', async () => {
+test('legacy flow baseline fields do not affect adjacent-month reports', async () => {
   await setBalance('2026-09', '2000');
   await setBalance('2026-10', '2000');
-  await fundSavingsService.set({ month: '2026-09', marketValue: '50', prepaid: '0' });
-  await fundSavingsService.set({
-    month: '2026-10', marketValue: '50', prepaid: '0', flowBaseline: true,
-  });
+  await db.fundSavingsSnapshots.bulkPut([
+    { month: '2026-09', marketValue: 5_000, prepaid: 900, netInvestment: 100, updatedAt: 1 },
+    { month: '2026-10', marketValue: 5_000, prepaid: 800, flowBaseline: 1, updatedAt: 2 },
+  ]);
 
   const report = await reconciliationService.report('2026-10');
-  assert.equal(report.fundNetInvestmentFilled, true);
-  assert.equal(report.interestChange.previousInterest, null);
-  assert.equal(report.interestChange.amount, null);
-  assert.match(report.interestChange.unavailableReason ?? '', /2026-09.*基金净投入/);
+  assert.equal(report.interestChange.previousInterest, '50.00');
+  assert.equal(report.interestChange.amount, '0.00');
+  assert.equal(report.interestChange.unavailableReason, null);
 });
 
 test('unknown fund market values do not block residual changes', async () => {
   await setBalance('2026-09', '2000');
   await setBalance('2026-10', '2001.23');
   for (const month of ['2026-09', '2026-10']) {
-    await fundSavingsService.set({ month, marketValue: '', prepaid: '0', netInvestment: '0' });
+    await fundSavingsService.set({ month, marketValue: '' });
   }
 
   const report = await reconciliationService.report('2026-10');
@@ -164,16 +160,14 @@ test('carried savings balances produce a saved-data comparison with explicit sou
   assert.match(warnings, /2026-11.*邮政卡.*2026-09/);
 });
 
-test('carried fund cash is identified even when missing investment makes change unavailable', async () => {
+test('carried fund market value is identified without blocking the comparison', async () => {
   await setBalance('2026-09', '2000');
   await setBalance('2026-10', '2000');
-  await fundSavingsService.set({
-    month: '2026-09', marketValue: '50', prepaid: '0', netInvestment: '0',
-  });
+  await fundSavingsService.set({ month: '2026-09', marketValue: '50' });
 
   const report = await reconciliationService.report('2026-10');
   assert.equal(report.fundSourceMonth, '2026-09');
-  assert.equal(report.interestChange.amount, null);
+  assert.equal(report.interestChange.amount, '0.00');
   assert.match(report.interestChange.warnings.join('\n'), /2026-10.*基金.*2026-09/);
 });
 
@@ -194,21 +188,19 @@ test('a global opening adjustment shifts both cumulative residuals equally', asy
   assert.equal((await savingsActualService.balanceAsOf(cardId, '2026-10'))?.amount, 97_615);
 });
 
-test('fund flow baseline changes warn about comparison scope without hiding the residual', async () => {
+test('legacy fund flow fields are ignored by residual comparisons', async () => {
   await setBalance('2026-09', '2000');
   await setBalance('2026-10', '2000');
-  await fundSavingsService.set({
-    month: '2026-09', marketValue: '50', prepaid: '0', netInvestment: '10',
-  });
-  await fundSavingsService.set({
-    month: '2026-10', marketValue: '50', prepaid: '0', flowBaseline: true,
-  });
+  await db.fundSavingsSnapshots.bulkPut([
+    { month: '2026-09', marketValue: 5_000, prepaid: 100, netInvestment: 1_000, updatedAt: 1 },
+    { month: '2026-10', marketValue: 5_000, prepaid: 200, flowBaseline: 1, updatedAt: 2 },
+  ]);
 
   const report = await reconciliationService.report('2026-10');
-  assert.equal(report.interest, '0.00');
-  assert.equal(report.interestChange.previousInterest, '10.00');
-  assert.equal(report.interestChange.amount, '-10.00');
-  assert.match(report.interestChange.warnings.join('\n'), /起点.*变化.*不代表当月利息/);
+  assert.equal(report.interest, '50.00');
+  assert.equal(report.interestChange.previousInterest, '50.00');
+  assert.equal(report.interestChange.amount, '0.00');
+  assert.doesNotMatch(report.interestChange.warnings.join('\n'), /起点/);
 });
 
 test('a free-text calibration note remains an ordinary saved budget expense', async () => {
@@ -232,12 +224,8 @@ test('a free-text calibration note remains an ordinary saved budget expense', as
 test('report queries do not create, delete, or alter any ledger data', async () => {
   await setBalance('2026-09');
   await setBalance('2026-10', '976.15');
-  await fundSavingsService.set({
-    month: '2026-09', marketValue: '', prepaid: '0', netInvestment: '0',
-  });
-  await fundSavingsService.set({
-    month: '2026-10', marketValue: '50', prepaid: '0', netInvestment: '0',
-  });
+  await fundSavingsService.set({ month: '2026-09', marketValue: '' });
+  await fundSavingsService.set({ month: '2026-10', marketValue: '50' });
   const snapshot = () => Promise.all(
     db.tables.map(async (table) => ({ table: table.name, rows: await table.toArray() })),
   );

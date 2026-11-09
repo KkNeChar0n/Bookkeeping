@@ -239,8 +239,9 @@ test('restored history contributes to multi-month consumption but not duplicate 
   await db.cards.update(bank.id, { initialBalance: 24000 });
   await db.budgetDetails.add({ id: 'current-expense', cardId: bank.id, month: '2026-10', label: '累计定额', kind: 'EXPENSE', amount: 6000, createdAt: 1 });
   await db.savingsActuals.add({ id: 'current-actual', cardId: bank.id, month: '2026-10', amount: 10000, updatedAt: 1 });
-  await db.fundSavingsSnapshots.add({ month: '2026-10', marketValue: 5000, prepaid: 1000, netInvestment: 0, updatedAt: 1 });
-  await db.bookkeepingStart.update('active', { fundOpeningConfirmed: true, openingFundMarketValue: 5000, openingFundPrepaid: 1000 });
+  await db.cards.add({ id: 'fund-cash', name: '基金资金卡', type: 'SAVINGS', initialBalance: 0, isDefault: 0, sortOrder: 2, createdAt: 2 });
+  await db.savingsActuals.add({ id: 'fund-cash-actual', cardId: 'fund-cash', month: '2026-10', amount: 1000, updatedAt: 1 });
+  await db.fundSavingsSnapshots.add({ month: '2026-10', marketValue: 5000, updatedAt: 1 });
   assert.equal((await spendService.periodView('2026')).spent, '69.00');
   assert.equal((await spendService.periodView('2026')).quota, '60.00');
   assert.equal((await spendService.periodView('2026')).overspend, '9.00');

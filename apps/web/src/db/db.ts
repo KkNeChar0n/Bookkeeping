@@ -56,12 +56,14 @@ export interface BookkeepingStartRow {
   id: 'active';
   startDate: string; // YYYY-MM-DD，本地起账日期
   createdAt: number;
-  openingFundPrepaid: number;
-  openingFundMarketValue: number;
+  /** @deprecated 旧版基金开账字段，仅用于备份兼容；新对账不再读取。 */
+  openingFundPrepaid?: number;
+  /** @deprecated 旧版基金开账字段，仅用于备份兼容；新对账不再读取。 */
+  openingFundMarketValue?: number;
   openingSavings: { cardId: string; amount: number }[];
   /** 人工预算期初已包含基金市值和现金，不能再全额叠加基金。 */
   manualOpening?: true;
-  /** 手工模式首次保存基金时单独确认固定的开账基金基准。 */
+  /** @deprecated 旧版首次基金确认标记，仅用于备份兼容。 */
   fundOpeningConfirmed?: boolean;
   /** 资产重新起账不截断消费历史：定额、超额充值、消费和结转持续累计。 */
   consumptionHistory?: true;
@@ -163,14 +165,15 @@ export interface FundMonthSnapshotRow {
   updatedAt: number;
 }
 
-// 全局基金储蓄池：每月最后填写的当前市值与预充金额。
+// 基金月度市值。旧现金流字段仅为备份兼容，新保存的记录不会再写入。
 export interface FundSavingsSnapshotRow {
   month: string; // YYYY-MM，同时作为主键
   marketValue: number;
-  prepaid: number;
-  /** 本月买入现金减赎回现金（分）；缺失表示尚未确认，不能沿用上月。 */
+  /** @deprecated 旧版独立基金现金；升级后应迁移到普通储蓄卡。 */
+  prepaid?: number;
+  /** @deprecated 旧版月度净投入，仅用于备份兼容。 */
   netInvestment?: number;
-  /** 已核对的历史月底起点，净投入从下月开始累计；不代表本月投入为0。 */
+  /** @deprecated 旧版基金现金流历史起点，仅用于备份兼容。 */
   flowBaseline?: 1;
   /** 历史市值未知，marketValue中的0仅为计算占位。 */
   marketValueKnown?: false;

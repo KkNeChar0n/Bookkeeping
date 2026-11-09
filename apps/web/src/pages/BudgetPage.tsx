@@ -24,7 +24,7 @@ export function BudgetPage() {
       </div>
       <div className="muted date-hint" style={{ textAlign: 'left', marginBottom: 12, fontSize: 12 }}>
         {manualOpening
-          ? '预算期初已包含基金份额；单卡预算不等于银行卡余额，请在统计中查看总资产对账。'
+          ? '预算期初是已包含起账基金市值的一次性总资产起点；不要再随基金变化调整期初。单卡预算不一定等于银行卡余额，请在统计中查看总资产对账。'
           : '预算为每月最后一天的存储金额'}
       </div>
 

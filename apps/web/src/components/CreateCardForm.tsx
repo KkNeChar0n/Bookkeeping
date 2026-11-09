@@ -44,6 +44,9 @@ export function CreateCardForm({
           onChange={(e) => setInitial(e.target.value)}
           placeholder="0.00"
         />
+        {type === 'SAVINGS' && <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+          若新建的是基金资金卡，且现有预算期初已包含这笔现金，请填 0；否则会把总资产起点重复增加。
+        </div>}
       </div>
       <button className="primary" onClick={add} disabled={!name.trim() || create.isPending}>
         添加

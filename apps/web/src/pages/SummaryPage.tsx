@@ -41,7 +41,6 @@ export function SummaryPage() {
   const start = useBookkeepingStart().data;
   const manualOpening = !!start?.manualOpening;
   const consumptionHistory = manualOpening && start?.consumptionHistory === true;
-  const fundOpeningPending = manualOpening && !start?.fundOpeningConfirmed;
   const openingMonth = !!start && refMonth === start.startDate.slice(0, 7);
   const historical = !!start && refMonth < start.startDate.slice(0, 7);
   const assetsAvailable = !historical && r?.reconciliationAvailable !== false;
@@ -211,7 +210,7 @@ export function SummaryPage() {
         {/* 储蓄 */}
         <div className="divider" />
         <div className="detail-sub">储蓄 · {manualOpening ? '各卡金额' : '实际与预期'}（截至 {refMonth}）</div>
-        {manualOpening && <div className="muted mt" style={{ fontSize: 12 }}>手工预算期初已包含基金总额，可能集中放在一张卡中；单卡预算与银行余额不能直接对账，差额请看下方总资产。</div>}
+        {manualOpening && <div className="muted mt" style={{ fontSize: 12 }}>手工预算期初是一次性的总资产起点，已包含起账时的基金市值；基金资金卡仍按普通储蓄卡展示。单卡预算与银行余额不一定能直接对账，差额请看下方总资产。</div>}
         {savings.length ? (
           savings.map((v) => (
             <div className="sum-row" key={v.cardId}>
@@ -236,7 +235,6 @@ export function SummaryPage() {
         {/* 对账 */}
         <div className="divider" />
         <div className="detail-sub">对账 · 总资产（截至 {refMonth}）</div>
-        {fundOpeningPending && <div className="warn mt">请先在基金页确认 {start?.startDate.slice(0, 7)} 的开账市值和独立现金，首次净投入为 0。基金基准未确认，对账及“利息/其他”暂不完整。</div>}
         {r ? (
           <>
             <div className="sum-row">
@@ -249,7 +247,7 @@ export function SummaryPage() {
             </div>
             <div className="sum-row total">
               <span>差额（实际−基准）</span>
-              {fundOpeningPending ? <b className="muted">未完整</b> : <b className={Number(r.diff) >= 0 ? 'pos' : 'neg'}>{fmtSigned(r.diff)}</b>}
+              <b className={Number(r.diff) >= 0 ? 'pos' : 'neg'}>{fmtSigned(r.diff)}</b>
             </div>
             <div className="brk-title">差额拆解</div>
             <div className="brk">
@@ -273,10 +271,10 @@ export function SummaryPage() {
               </span>
             </div>
             <div className="brk">
-              <span>利息/其他（累计）</span>
-              {fundOpeningPending ? <span className="muted">未完整</span> : <span className={Number(r.interest) >= 0 ? 'pos' : 'neg'}>
+              <span>资产变动/其他（累计）</span>
+              <span className={Number(r.interest) >= 0 ? 'pos' : 'neg'}>
                 {fmtSigned(r.interest)}
-              </span>}
+              </span>
             </div>
             <details className="interest-change">
               <summary className="brk">
@@ -284,7 +282,7 @@ export function SummaryPage() {
                   <span className="disclosure-arrow" aria-hidden="true">▸</span>{' '}
                   {openingMonth ? manualOpening ? '起账月新增差额' : '起账后新增差额' : mode === 'month' ? '本月新增差额' : `${refMonth} 新增差额`}
                 </span>
-                {fundOpeningPending ? <span className="muted">未完整</span> : r.interestChange.amount !== null ? (
+                {r.interestChange.amount !== null ? (
                   <span className={Number(r.interestChange.amount) >= 0 ? 'pos' : 'neg'}>
                     {fmtSigned(r.interestChange.amount)}
                   </span>
@@ -305,17 +303,17 @@ export function SummaryPage() {
                 </div>
                 <div className="brk">
                   <span>{refMonth} 累计</span>
-                  {fundOpeningPending ? <span className="muted">未完整</span> : <span className={Number(r.interest) >= 0 ? 'pos' : 'neg'}>
+                  <span className={Number(r.interest) >= 0 ? 'pos' : 'neg'}>
                     {fmtSigned(r.interest)}
-                  </span>}
+                  </span>
                 </div>
                 <div className="muted mt" style={{ fontSize: 12 }}>
                   {openingMonth
                     ? manualOpening
-                      ? '新增差额 = 起账月累计 − 起点参考 0；不与旧账上月比较。期初由你手工重建，系统不会自动调平；基金基准确认前无法完整计算。'
+                      ? '新增差额 = 起账月累计 − 起点参考 0；不与旧账上月比较。期初由你手工重建，系统不会自动调平。'
                       : '新增差额 = 起账后累计 − 起账基准 0；不与旧账上月比较。'
                     : `新增差额 = ${refMonth} 累计 − ${r.interestChange.previousMonth} 累计。`}
-                  这是未解释差额的变化，不等于真实当月利息；预算基准变化、历史补录或修正也可能影响结果。
+                  这是未解释资产变化，不等于真实当月利息或单独计算的基金盈亏；基金市值变化、预算基准变化、历史补录或修正都可能影响结果。
                   调整全局期初会重算所有月份的累计值。
                 </div>
                 {r.interestChange.warnings.map((warning) => (
@@ -334,12 +332,11 @@ export function SummaryPage() {
               </div>
             )}
             <div className="muted mt" style={{ fontSize: 12 }}>
-              累计截至 {refMonth}，不是所选期间的利息合计。正数表示扣除已解释项后实际偏多，负数表示实际偏少。
+              累计截至 {refMonth}。该项可能包含基金市值涨跌、银行利息、历史补录及其它未解释变化；正数表示扣除已解释项后实际偏多，负数表示实际偏少。
             </div>
             <div className="muted mt" style={{ fontSize: 12 }}>
-              {manualOpening
-                ? '人工预算期初已含开账基金市值和独立现金，不再重复叠加。对账预算先扣固定开账市值，再加当前市值，并扣确认后的累计净投入；实际加当前基金市值及独立现金。基金市值变化不算盈亏，也不会造成对账假差额。'
-                : <>基金市值等额进入对账预算基准和实际，不计算盈亏；基金预充是未包含在其他储蓄卡余额中的独立现金，当前余额进入实际{start ? '，起账时的基金现金同时计入预算期初' : ''}；{start ? '起账后' : '累计'}基金净投入从预算基准中扣除，本身不是资产。</>}
+              对账预算基准 = 所有储蓄卡预算预期合计；实际总资产 = 所有储蓄卡真实余额 + 基金当前市值。
+              基金资金现金请放在普通储蓄卡中：银行卡之间转账，以及资金卡买入基金，都是资产内部移动，不需要另记基金预算支出。基金市值涨跌会进入“资产变动/其他”。
               消费超支=逐月
               max(已花−当月消费预算, 0)；{consumptionHistory ? '消费充值对账余额' : '消费预充暂存'}=累计超额充值−累计超支−累计结转（{consumptionHistory ? '仅起账月之后的资产结转' : '累计结转'}{' '}
               {fmtMoney(r.carryover)}）。
@@ -348,15 +345,9 @@ export function SummaryPage() {
             {!r.savingsFilled && (
               <div className="warn mt">部分储蓄卡未填该期真实额，总资产/差额暂不完整。</div>
             )}
-            {!r.fundMarketValueFilled && !fundOpeningPending && (
+            {!r.fundMarketValueFilled && (
               <div className="warn mt">
-                该期基金市值尚未填写，总资产暂不完整；市值在对账两边均按 0 占位，因此不会改变差额。
-              </div>
-            )}
-            {!r.fundNetInvestmentFilled && !fundOpeningPending && (
-              <div className="warn mt">
-                基金净投入尚未确认的月份：
-                {r.fundMissingNetInvestmentMonths.join('、')}。对账预算基准和“利息/其他”暂不完整。
+                该期基金市值明确留空，总资产暂不完整；当前按 0 占位，差额也会暂时少计这部分资产。
               </div>
             )}
           </>
@@ -368,7 +359,7 @@ export function SummaryPage() {
 
       {assetsAvailable && <>
       <div className="card">
-        <div className="detail-sub">基金储蓄池（截至 {refMonth}）</div>
+        <div className="detail-sub">基金当前市值（截至 {refMonth}）</div>
         <div className="sum-row">
           <span>当前市值</span>
           {r?.fundMarketValueFilled === false ? (
@@ -377,46 +368,13 @@ export function SummaryPage() {
             <span>{fmtMoney(r?.fundMarketValue ?? '0')}</span>
           )}
         </div>
-        <div className="sum-row">
-          <span>预充金额</span>
-          <span>{fmtMoney(r?.fundPrepaid ?? '0')}</span>
-        </div>
         <div className="sum-row total">
-          <span>{r?.fundMarketValueFilled === false ? '已填部分合计' : '合计'}</span>
-          <b>{fmtMoney(r?.fundTotal ?? '0')}</b>
+          <span>计入实际总资产</span>
+          <b>{r?.fundMarketValueFilled === false ? '未完整' : fmtMoney(r?.fundMarketValue ?? '0')}</b>
         </div>
-        <div className="sum-row">
-          <span>
-            {openingMonth && manualOpening ? '开账确认后本月净投入' : mode === 'month' ? '本月净投入' : `${refMonth} 净投入`}{' '}
-            <span className="meta">非资产项</span>
-          </span>
-          {r?.fundFlowBaselineMonth === refMonth ? (
-            <span className="muted">历史起点</span>
-          ) : r?.fundNetInvestment !== null && r?.fundNetInvestment !== undefined ? (
-            <span className={Number(r.fundNetInvestment) >= 0 ? 'pos' : 'neg'}>
-              {Number(r.fundNetInvestment) === 0 ? '0.00' : fmtSigned(r.fundNetInvestment)}
-            </span>
-          ) : (
-            <span className="muted">未确认</span>
-          )}
+        <div className="muted mt" style={{ fontSize: 12 }}>
+          待投资现金不在这里填写；请新建普通储蓄卡并按月填写真实余额。基金页只维护市值。
         </div>
-        <div className="sum-row">
-          <span>
-            {r?.fundFlowBaselineMonth ? '自起点后累计已确认净投入' : '累计已确认净投入'}{' '}
-            <span className="meta">非资产项</span>
-          </span>
-          <span className={Number(r?.fundCumulativeNetInvestment ?? 0) >= 0 ? 'pos' : 'neg'}>
-            {Number(r?.fundCumulativeNetInvestment ?? 0) === 0
-              ? '0.00'
-              : fmtSigned(r?.fundCumulativeNetInvestment ?? '0')}
-          </span>
-        </div>
-        {r?.fundFlowBaselineMonth && (
-          <div className="muted mt" style={{ fontSize: 12 }}>
-            历史对账起点：{r.fundFlowBaselineMonth}
-            。净投入只从下一月开始累计；起点不会抹平已有差额。
-          </div>
-        )}
       </div>
       </>}
     </div>
