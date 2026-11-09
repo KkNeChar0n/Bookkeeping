@@ -8,7 +8,7 @@ import { BookkeepingScopeNotice } from '../components/BookkeepingScopeNotice';
 export function BudgetPage() {
   const cards = useCards();
   const manualOpening = !!useBookkeepingStart().data?.manualOpening;
-  const savings = (cards.data ?? []).filter((c) => c.type === 'SAVINGS');
+  const savings = (cards.data ?? []).filter((c) => c.type === 'SAVINGS' && !c.isFundCash);
   const [openId, setOpenId] = useState<string | null>(null);
 
   useEffect(() => {

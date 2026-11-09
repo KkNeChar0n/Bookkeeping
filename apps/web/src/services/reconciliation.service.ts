@@ -39,6 +39,18 @@ export interface ReconciliationReport extends Reconciliation {
   interestChange: InterestChange;
 }
 
+export interface ReconciliationMonthBreakdown {
+  month: string;
+  overspend: string;
+  incomeDiff: string;
+  assetChange: string | null;
+}
+
+export interface ReconciliationBreakdown {
+  refMonth: string;
+  months: ReconciliationMonthBreakdown[];
+}
+
 function thisMonth(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
@@ -69,13 +81,17 @@ export const reconciliationService = {
     let cumExpectedIncome = 0;
     let cumActualIncome = 0;
     for (const c of savings) {
-      savingsExpected += await budgetPlanService.expectedBalance(c.id, ref);
+      if (c.isFundCash !== 1) {
+        savingsExpected += await budgetPlanService.expectedBalance(c.id, ref);
+      }
       const bal = await savingsActualService.balanceAsOf(c.id, ref);
       savingsBalanceSources.push({ cardName: c.name, month: bal?.month ?? null });
       if (bal) {
         savingsActual += bal.amount;
-        cumExpectedIncome += await budgetPlanService.totalIncomeUpTo(c.id, ref);
-        cumActualIncome += await savingsEntryService.cumIncomeUpTo(c.id, ref);
+        if (c.isFundCash !== 1) {
+          cumExpectedIncome += await budgetPlanService.totalIncomeUpTo(c.id, ref);
+          cumActualIncome += await savingsEntryService.cumIncomeUpTo(c.id, ref);
+        }
       } else {
         savingsFilled = false;
       }
@@ -176,6 +192,62 @@ export const reconciliationService = {
         unavailableReason: missing.length ? `${missing.join('；')}，无法计算完整新增差额。` : null,
         warnings,
       },
+    };
+  },
+
+  /** 将累计差额拆成连续月份增量；只读，不写入或修正任何账本数据。 */
+  async breakdown(refMonth?: string): Promise<ReconciliationBreakdown> {
+    const ref = refMonth || thisMonth();
+    const start = await getBookkeepingStart();
+    const startMonth = start?.startDate.slice(0, 7);
+    if (startMonth && ref < startMonth) return { refMonth: ref, months: [] };
+
+    let firstMonth = startMonth;
+    if (!firstMonth) {
+      const [details, actuals, entries, budgets, funds, transactions] = await Promise.all([
+        db.budgetDetails.toArray(),
+        db.savingsActuals.toArray(),
+        db.savingsEntries.toArray(),
+        db.consumptionBudgets.toArray(),
+        db.fundSavingsSnapshots.toArray(),
+        db.transactions.toArray(),
+      ]);
+      const candidates = [
+        ...details.map((row) => row.month),
+        ...actuals.map((row) => row.month),
+        ...entries.map((row) => row.month),
+        ...budgets.map((row) => row.month),
+        ...funds.map((row) => row.month),
+        ...transactions.map((row) => row.date.slice(0, 7)),
+      ].filter((month) => /^\d{4}-(0[1-9]|1[0-2])$/.test(month) && month <= ref);
+      firstMonth = candidates.sort()[0] ?? ref;
+    }
+
+    const months: string[] = [];
+    for (let month = firstMonth; month <= ref; month = addMonths(month, 1)) months.push(month);
+    const resultMonths = [addMonths(firstMonth, -1), ...months];
+    const results = await Promise.all(resultMonths.map((month) => this.compute(month)));
+
+    return {
+      refMonth: ref,
+      months: months.map((month, index) => {
+        const previous = results[index];
+        const current = results[index + 1];
+        const opening = startMonth === month;
+        const assetChange = opening
+          ? current.savingsFilled
+            ? current.interest
+            : null
+          : previous.reconciliationAvailable && previous.savingsFilled && current.savingsFilled
+            ? fromCents(toCents(current.interest) - toCents(previous.interest))
+            : null;
+        return {
+          month,
+          overspend: fromCents(toCents(current.overspend) - toCents(previous.overspend)),
+          incomeDiff: fromCents(toCents(current.incomeDiff) - toCents(previous.incomeDiff)),
+          assetChange,
+        };
+      }),
     };
   },
 };

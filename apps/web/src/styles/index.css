@@ -546,6 +546,17 @@ td:first-child {
   font-size: 13px;
   color: var(--text-dim);
 }
+.brk-group {
+  padding-top: 8px;
+  color: var(--text);
+  font-weight: 600;
+}
+.brk-months {
+  margin-left: 14px;
+}
+.brk-months .brk {
+  padding-left: 4px;
+}
 .interest-change > summary {
   cursor: pointer;
   list-style: none;

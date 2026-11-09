@@ -30,7 +30,7 @@ test('budget is savings expectation while actual adds only market value', async 
 test('moving cash into an ordinary fund card and buying funds are asset-neutral', async () => {
   await db.cards.add({
     id: 'fund-cash', name: '基金资金卡', type: 'SAVINGS', initialBalance: 0,
-    isDefault: 0, sortOrder: 2, createdAt: 2,
+    isDefault: 0, sortOrder: 2, createdAt: 2, isFundCash: 1,
   });
   await savingsActualService.setAmount({ cardId: 'fund-cash', month: '2026-09', amount: '0' });
 

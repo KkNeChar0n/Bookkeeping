@@ -11,6 +11,7 @@ export interface SavingsSummaryRow {
   actual: string | null; // 真实储蓄额（该月未填则 null）
   expected: string; // 预期余额（截至该月）
   diff: string | null; // 实际 − 预期
+  isFundCash: boolean;
 }
 
 function thisMonth(): string {
@@ -36,6 +37,7 @@ export const savingsSummaryService = {
         actual: latest ? fromCents(latest.amount) : null,
         expected: fromCents(expectedC),
         diff: latest ? fromCents(latest.amount - expectedC) : null,
+        isFundCash: c.isFundCash === 1,
       });
     }
     return rows;
@@ -60,6 +62,7 @@ export const savingsSummaryService = {
         actual: bal ? fromCents(bal.amount) : null,
         expected: fromCents(expectedC),
         diff: bal ? fromCents(bal.amount - expectedC) : null,
+        isFundCash: c.isFundCash === 1,
       });
     }
     return rows;

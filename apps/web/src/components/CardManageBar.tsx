@@ -7,12 +7,14 @@ export function CardManageBar({
   name,
   initialBalance,
   showInitial,
+  isFundCash = false,
   onDeleted,
 }: {
   cardId: string;
   name: string;
   initialBalance?: string;
   showInitial?: boolean;
+  isFundCash?: boolean;
   onDeleted: () => void;
 }) {
   const update = useUpdateCard();
@@ -26,6 +28,14 @@ export function CardManageBar({
   const editInitial = () => {
     const v = window.prompt('初始余额', initialBalance ?? '0');
     if (v !== null) update.mutate({ id: cardId, initialBalance: v });
+  };
+  const toggleFundCash = async () => {
+    setMsg('');
+    try {
+      await update.mutateAsync({ id: cardId, isFundCash: !isFundCash });
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : '修改失败');
+    }
   };
   const remove = async () => {
     if (!window.confirm(`确定删除「${name}」及其全部收支、预算和修改记录？此操作不可撤销。`))
@@ -44,11 +54,14 @@ export function CardManageBar({
         <button className="mini" onClick={rename}>
           改名
         </button>
-        {showInitial && (
+        {showInitial && !isFundCash && (
           <button className="mini" onClick={editInitial}>
             改初始
           </button>
         )}
+        <button className="mini" onClick={toggleFundCash} disabled={update.isPending}>
+          {isFundCash ? '取消基金资金卡' : '设为基金资金卡'}
+        </button>
         <button className="mini danger" onClick={remove}>
           删除此卡
         </button>

@@ -25,7 +25,10 @@ import { buildOrphanCleanupPlan } from '../domain/orphanCleanup';
 import { aggregateLegacyFundSavings, isValidMonth } from '../domain/fundSavings';
 
 type LegacyConsumptionBudgetRow = ConsumptionBudgetRow & { consumptionCardId?: string };
-type LegacyBackupCardRow = CardRow & { savingsPurpose?: 'FUND_POOL' };
+type LegacyBackupCardRow = Omit<CardRow, 'isFundCash'> & {
+  isFundCash?: unknown;
+  savingsPurpose?: 'FUND_POOL';
+};
 interface LegacyAssetTransferRow {
   id: string;
   date: string;
@@ -173,6 +176,15 @@ function virtualCard(): CardRow {
   };
 }
 
+function normalizeCard(row: LegacyBackupCardRow): CardRow {
+  const { isFundCash, savingsPurpose, ...card } = row;
+  const marked =
+    card.type === 'SAVINGS' &&
+    card.initialBalance === 0 &&
+    (isFundCash === 1 || savingsPurpose === 'FUND_POOL');
+  return { ...card, ...(marked ? { isFundCash: 1 as const } : {}) };
+}
+
 /** Normalize old backups before writing them into the already-upgraded database. */
 export function normalizeBackupData(data: BackupData): NormalizedBackupData {
   const bookkeepingStart = normalizeBookkeepingStart(data.bookkeepingStart);
@@ -229,7 +241,10 @@ export function normalizeBackupData(data: BackupData): NormalizedBackupData {
     app: 'bookkeeping' as const,
     version: 15,
     exportedAt: data.exportedAt,
-    cards: [...data.cards.filter((card) => card.type !== 'SPEND'), virtualCard()],
+    cards: [
+      ...data.cards.filter((card) => card.type !== 'SPEND').map(normalizeCard),
+      virtualCard(),
+    ],
     budgetSnapshots: data.budgetSnapshots ?? [],
     budgetLines: data.budgetLines ?? [],
     transactions: (data.transactions ?? []).map((row) => {
@@ -289,9 +304,8 @@ export function normalizeBackupData(data: BackupData): NormalizedBackupData {
       latestSnapshotByFund.set(row.fundCardId, row);
     }
   }
-  const cards: CardRow[] = (normalized.cards as LegacyBackupCardRow[]).map((legacyCard) => {
+  const migratedCards: CardRow[] = normalized.cards.map((legacyCard) => {
     const card = { ...legacyCard };
-    delete card.savingsPurpose;
     if (card.type !== 'FUND') return card;
     const latest = latestSnapshotByFund.get(card.id);
     return {
@@ -300,6 +314,19 @@ export function normalizeBackupData(data: BackupData): NormalizedBackupData {
         (card.fundPrincipal ?? card.initialBalance) + (contributionsByFund.get(card.id) ?? 0),
       ...(latest ? { fundValue: latest.value } : {}),
     };
+  });
+  const cards: CardRow[] = migratedCards.map((card) => {
+    if (card.isFundCash !== 1) return card;
+    const hasBudgetData = (normalized.budgetDetails ?? []).some(
+      (row) => row.cardId === card.id || row.peerCardId === card.id,
+    ) || normalized.budgetLines.some((row) => row.cardId === card.id);
+    const hasFundingData =
+      (normalized.savingsEntries ?? []).some((row) => row.cardId === card.id) ||
+      normalized.consumptionBudgets.some((row) => row.savingsCardId === card.id);
+    if (!hasBudgetData && !hasFundingData) return card;
+    const clean = { ...card };
+    delete clean.isFundCash;
+    return clean;
   });
   const cardById = new Map(cards.map((card) => [card.id, card]));
   const legacyAssetTransfers = (data.assetTransfers ?? []).filter((row) => {

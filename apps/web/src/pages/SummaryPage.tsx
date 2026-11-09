@@ -4,12 +4,13 @@ import {
   useBookkeepingStart,
   useConsumptionReconcileTotals,
   useReconciliation,
+  useReconciliationBreakdown,
   useSavingsSummaryAsOf,
   useSpendPeriod,
   useSpendStats,
 } from '../api/hooks';
 import { currentMonthStr, fmtMoney, fmtSigned } from '../lib/format';
-import { BookkeepingScopeNotice } from '../components/BookkeepingScopeNotice';
+import type { ReconciliationMonthBreakdown } from '../services/reconciliation.service';
 
 export function SummaryPage() {
   const [mode, setMode] = useState<'month' | 'year'>('month');
@@ -31,6 +32,7 @@ export function SummaryPage() {
   const stats = useSpendStats(prefix);
   const incomeCmp = useIncomeCompare(prefix);
   const recon = useReconciliation(refMonth);
+  const breakdown = useReconciliationBreakdown(refMonth);
   const savingsCmp = useSavingsSummaryAsOf(refMonth);
   const consumptionTotals = useConsumptionReconcileTotals(refMonth);
 
@@ -41,7 +43,6 @@ export function SummaryPage() {
   const start = useBookkeepingStart().data;
   const manualOpening = !!start?.manualOpening;
   const consumptionHistory = manualOpening && start?.consumptionHistory === true;
-  const openingMonth = !!start && refMonth === start.startDate.slice(0, 7);
   const historical = !!start && refMonth < start.startDate.slice(0, 7);
   const assetsAvailable = !historical && r?.reconciliationAvailable !== false;
 
@@ -69,8 +70,6 @@ export function SummaryPage() {
             onChange={(e) => setYearVal(e.target.value)}
           />
         )}
-        <BookkeepingScopeNotice month={refMonth} />
-
         {/* 消费超支 */}
         <div className="divider" />
         <div className="detail-sub">消费 · 超支情况</div>
@@ -101,9 +100,6 @@ export function SummaryPage() {
                 </span>
               )}
             </div>
-            {spendView.startDate && <div className="muted mt" style={{ fontSize: 12 }}>{consumptionHistory
-              ? '上方为所选期间消费；下方累计保留全部历史定额、充值与逐月超支，资产重新起账不截断消费历史。'
-              : manualOpening ? `额度与已花包含 ${spendView.startDate.slice(0, 7)} 起账月的全部消费，更早月份仅查询；可在设置中恢复历史消费资金，启用完整累计。` : `额度与已花只计算 ${spendView.startDate} 起账后的新账范围。`}下方分类统计包含所选期间全部消费。</div>}
             {showSpendMonths && (
               <div className="cat-items">
                 {spendView.months.map((row) => (
@@ -133,7 +129,6 @@ export function SummaryPage() {
             <div className="sum-row"><span>累计超额充值</span><span>{fmtMoney(consumptionTotals.data.excess)}</span></div>
             <div className="sum-row"><span>累计已消费</span><span>{fmtMoney(consumptionTotals.data.spent)}</span></div>
             <div className="sum-row total"><span>累计消费超支</span><b className={Number(consumptionTotals.data.overspend) > 0 ? 'neg' : ''}>{fmtMoney(consumptionTotals.data.overspend)}</b></div>
-            <div className="muted mt" style={{ fontSize: 12 }}>累计超支为各月 max(已花−当月定额, 0) 之和；超额充值不抵扣超支。这里包含资产起账前的消费资金，但不恢复旧资产对账。</div>
           </div>
         )}
 
@@ -210,7 +205,6 @@ export function SummaryPage() {
         {/* 储蓄 */}
         <div className="divider" />
         <div className="detail-sub">储蓄 · {manualOpening ? '各卡金额' : '实际与预期'}（截至 {refMonth}）</div>
-        {manualOpening && <div className="muted mt" style={{ fontSize: 12 }}>手工预算期初是一次性的总资产起点，已包含起账时的基金市值；基金资金卡仍按普通储蓄卡展示。单卡预算与银行余额不一定能直接对账，差额请看下方总资产。</div>}
         {savings.length ? (
           savings.map((v) => (
             <div className="sum-row" key={v.cardId}>
@@ -218,10 +212,12 @@ export function SummaryPage() {
                 {v.cardName}
                 <span className="meta">
                   {' '}
-                  实际{v.actual !== null ? fmtMoney(v.actual) : '未填'} · 预期{fmtMoney(v.expected)}
+                  {v.isFundCash
+                    ? `实际${v.actual !== null ? fmtMoney(v.actual) : '未填'}`
+                    : <>实际{v.actual !== null ? fmtMoney(v.actual) : '未填'} · 预期{fmtMoney(v.expected)}</>}
                 </span>
               </span>
-              {manualOpening ? <span className="muted">仅展示</span> : v.diff !== null ? (
+              {v.isFundCash || manualOpening ? <span className="muted">仅展示</span> : v.diff !== null ? (
                 <b className={Number(v.diff) >= 0 ? 'pos' : 'neg'}>{fmtSigned(v.diff)}</b>
               ) : (
                 <span className="muted">—</span>
@@ -251,97 +247,33 @@ export function SummaryPage() {
             </div>
             <div className="brk-title">差额拆解</div>
             <div className="brk">
-              <span>消费超支(累计)</span>
-              <span
-                className={Number(r.overspend) > 0 ? 'neg' : Number(r.overspend) < 0 ? 'pos' : ''}
-              >
-                {Number(r.overspend) === 0 ? '0.00' : fmtSigned(-Number(r.overspend))}
-              </span>
-            </div>
-            <div className="brk">
-              <span>{consumptionHistory ? '消费充值对账余额' : '预充暂存(未花)'}</span>
+              <span>预算余额</span>
               <span className={Number(r.prepaid) > 0 ? 'neg' : Number(r.prepaid) < 0 ? 'pos' : ''}>
                 {Number(r.prepaid) === 0 ? '0.00' : fmtSigned(-Number(r.prepaid))}
               </span>
             </div>
-            <div className="brk">
-              <span>收入差额(累计)</span>
-              <span className={Number(r.incomeDiff) >= 0 ? 'pos' : 'neg'}>
-                {fmtSigned(r.incomeDiff)}
-              </span>
-            </div>
-            <div className="brk">
-              <span>资产变动/其他（累计）</span>
-              <span className={Number(r.interest) >= 0 ? 'pos' : 'neg'}>
-                {fmtSigned(r.interest)}
-              </span>
-            </div>
-            <details className="interest-change">
-              <summary className="brk">
-                <span>
-                  <span className="disclosure-arrow" aria-hidden="true">▸</span>{' '}
-                  {openingMonth ? manualOpening ? '起账月新增差额' : '起账后新增差额' : mode === 'month' ? '本月新增差额' : `${refMonth} 新增差额`}
-                </span>
-                {r.interestChange.amount !== null ? (
-                  <span className={Number(r.interestChange.amount) >= 0 ? 'pos' : 'neg'}>
-                    {fmtSigned(r.interestChange.amount)}
-                  </span>
-                ) : (
-                  <span className="muted">无法计算</span>
-                )}
-              </summary>
-              <div className="cat-items">
-                <div className="brk">
-                  <span>{openingMonth ? manualOpening ? '人工重建起点参考' : '已核实起账基准' : `${r.interestChange.previousMonth} 累计`}</span>
-                  {r.interestChange.previousInterest !== null ? (
-                    <span className={Number(r.interestChange.previousInterest) >= 0 ? 'pos' : 'neg'}>
-                      {fmtSigned(r.interestChange.previousInterest)}
-                    </span>
-                  ) : (
-                    <span className="muted">未完整</span>
-                  )}
-                </div>
-                <div className="brk">
-                  <span>{refMonth} 累计</span>
-                  <span className={Number(r.interest) >= 0 ? 'pos' : 'neg'}>
-                    {fmtSigned(r.interest)}
-                  </span>
-                </div>
-                <div className="muted mt" style={{ fontSize: 12 }}>
-                  {openingMonth
-                    ? manualOpening
-                      ? '新增差额 = 起账月累计 − 起点参考 0；不与旧账上月比较。期初由你手工重建，系统不会自动调平。'
-                      : '新增差额 = 起账后累计 − 起账基准 0；不与旧账上月比较。'
-                    : `新增差额 = ${refMonth} 累计 − ${r.interestChange.previousMonth} 累计。`}
-                  这是未解释资产变化，不等于真实当月利息或单独计算的基金盈亏；基金市值变化、预算基准变化、历史补录或修正都可能影响结果。
-                  调整全局期初会重算所有月份的累计值。
-                </div>
-                {r.interestChange.warnings.map((warning) => (
-                  <div className="muted mt" style={{ fontSize: 12 }} key={warning}>
-                    {warning}
-                  </div>
-                ))}
-              </div>
-            </details>
-            {r.interestChange.unavailableReason && (
-              <div className="warn mt">{r.interestChange.unavailableReason}</div>
-            )}
-            {r.interestChange.warnings.length > 0 && (
-              <div className="muted mt" style={{ fontSize: 12 }}>
-                存在余额沿用或对账口径变化，新增差额仅供参考；展开可查看来源。
-              </div>
-            )}
-            <div className="muted mt" style={{ fontSize: 12 }}>
-              累计截至 {refMonth}。该项可能包含基金市值涨跌、银行利息、历史补录及其它未解释变化；正数表示扣除已解释项后实际偏多，负数表示实际偏少。
-            </div>
-            <div className="muted mt" style={{ fontSize: 12 }}>
-              对账预算基准 = 所有储蓄卡预算预期合计；实际总资产 = 所有储蓄卡真实余额 + 基金当前市值。
-              基金资金现金请放在普通储蓄卡中：银行卡之间转账，以及资金卡买入基金，都是资产内部移动，不需要另记基金预算支出。基金市值涨跌会进入“资产变动/其他”。
-              消费超支=逐月
-              max(已花−当月消费预算, 0)；{consumptionHistory ? '消费充值对账余额' : '消费预充暂存'}=累计超额充值−累计超支−累计结转（{consumptionHistory ? '仅起账月之后的资产结转' : '累计结转'}{' '}
-              {fmtMoney(r.carryover)}）。
-              {consumptionHistory && '消费资金仍按完整历史计算结转；起账月及此前的资金已包含在手工期初中，不再重复扣当前余额。对账余额不等同于消费账户实际剩余预充。'}
-            </div>
+            <BreakdownGroup
+              title="消费超支"
+              total={r.overspend}
+              rows={breakdown.data?.months ?? []}
+              field="overspend"
+              invert
+              refMonth={refMonth}
+            />
+            <BreakdownGroup
+              title="收入差额"
+              total={r.incomeDiff}
+              rows={breakdown.data?.months ?? []}
+              field="incomeDiff"
+              refMonth={refMonth}
+            />
+            <BreakdownGroup
+              title="资产变动"
+              total={r.interest}
+              rows={breakdown.data?.months ?? []}
+              field="assetChange"
+              refMonth={refMonth}
+            />
             {!r.savingsFilled && (
               <div className="warn mt">部分储蓄卡未填该期真实额，总资产/差额暂不完整。</div>
             )}
@@ -372,11 +304,58 @@ export function SummaryPage() {
           <span>计入实际总资产</span>
           <b>{r?.fundMarketValueFilled === false ? '未完整' : fmtMoney(r?.fundMarketValue ?? '0')}</b>
         </div>
-        <div className="muted mt" style={{ fontSize: 12 }}>
-          待投资现金不在这里填写；请新建普通储蓄卡并按月填写真实余额。基金页只维护市值。
-        </div>
       </div>
       </>}
     </div>
   );
+}
+
+function BreakdownGroup({
+  title,
+  total,
+  rows,
+  field,
+  invert = false,
+  refMonth,
+}: {
+  title: string;
+  total: string;
+  rows: ReconciliationMonthBreakdown[];
+  field: 'overspend' | 'incomeDiff' | 'assetChange';
+  invert?: boolean;
+  refMonth: string;
+}) {
+  return (
+    <>
+      <div className="brk brk-group">
+        <span>{title}</span>
+        <BreakdownValue value={total} invert={invert} />
+      </div>
+      {rows.length > 0 && (
+        <div className="cat-items brk-months">
+          {rows.map((row) => (
+            <div className="brk" key={field + '-' + row.month}>
+              <span>{formatBreakdownMonth(row.month, refMonth)}</span>
+              <BreakdownValue value={row[field]} invert={invert} />
+            </div>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
+function BreakdownValue({ value, invert = false }: { value: string | null; invert?: boolean }) {
+  if (value === null) return <span className="muted">无法计算</span>;
+  const amount = Number(value) * (invert ? -1 : 1);
+  return (
+    <span className={amount > 0 ? 'pos' : amount < 0 ? 'neg' : ''}>
+      {amount === 0 ? '0.00' : fmtSigned(amount)}
+    </span>
+  );
+}
+
+function formatBreakdownMonth(month: string, refMonth: string): string {
+  const label = String(Number(month.slice(5, 7))) + '月';
+  return month.slice(0, 4) === refMonth.slice(0, 4) ? label : month.slice(0, 4) + '年' + label;
 }

@@ -62,7 +62,7 @@ async function buildPlan(input: unknown): Promise<RecoveryPlan> {
     }
     sourceById.set(card.id, card);
   }
-  const savings = cards.filter((card) => card.type === 'SAVINGS');
+  const savings = cards.filter((card) => card.type === 'SAVINGS' && card.isFundCash !== 1);
   const matchCard = (value: unknown): string => {
     if (typeof value !== 'string') throw new Error('消费资金缺少出资卡');
     const source = sourceById.get(value);
@@ -105,8 +105,11 @@ async function buildPlan(input: unknown): Promise<RecoveryPlan> {
   };
   readRows(data.consumptionBudgets as unknown[] ?? [], budgets, 'savingsCardId');
   // Old single consumption-card quotas did not have a funding-card ID.
-  const legacyFunder = sourceCards.find((card) => card.type === 'SAVINGS' && card.isDefault)
-    ?? sourceCards.find((card) => card.type === 'SAVINGS');
+  const legacyFunder = sourceCards.find(
+    (card) => card.type === 'SAVINGS' && card.isFundCash !== 1 && card.savingsPurpose !== 'FUND_POOL' && card.isDefault,
+  ) ?? sourceCards.find(
+    (card) => card.type === 'SAVINGS' && card.isFundCash !== 1 && card.savingsPurpose !== 'FUND_POOL',
+  );
   const quotas = (data.spendQuotas as unknown[] ?? []).map((value) => {
     const row = record(value);
     return { ...row, savingsCardId: legacyFunder?.id };

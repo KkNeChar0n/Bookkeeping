@@ -13,6 +13,7 @@ export interface Card {
   initialBalance: string;
   isDefault: boolean;
   sortOrder: number;
+  isFundCash: boolean;
 }
 
 /** 卡片在某日期下的类型化摘要（主页展开 / 详情页用） */

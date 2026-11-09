@@ -12,6 +12,7 @@ export function CreateCardForm({
   const create = useCreateCard();
   const [name, setName] = useState('');
   const [initial, setInitial] = useState('');
+  const [isFundCash, setIsFundCash] = useState(false);
   const [msg, setMsg] = useState('');
 
   const add = async () => {
@@ -20,10 +21,12 @@ export function CreateCardForm({
       await create.mutateAsync({
         name,
         type,
-        initialBalance: initial || '0',
+        initialBalance: isFundCash ? '0' : initial || '0',
+        isFundCash,
       });
       setName('');
       setInitial('');
+      setIsFundCash(false);
     } catch (e) {
       setMsg(e instanceof Error ? e.message : '添加失败');
     }
@@ -36,17 +39,29 @@ export function CreateCardForm({
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder={placeholder} />
       </div>
       <div className="field">
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <input
+            type="checkbox"
+            checked={isFundCash}
+            onChange={(e) => setIsFundCash(e.target.checked)}
+            style={{ width: 'auto' }}
+          />
+          基金资金卡
+        </label>
+        <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+          只记录待投资现金的真实余额，不在预算中展示。
+        </div>
+      </div>
+      <div className="field">
         <label>期初余额</label>
         <input
           type="number"
           step="0.01"
-          value={initial}
+          value={isFundCash ? '0' : initial}
           onChange={(e) => setInitial(e.target.value)}
           placeholder="0.00"
+          disabled={isFundCash}
         />
-        {type === 'SAVINGS' && <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
-          若新建的是基金资金卡，且现有预算期初已包含这笔现金，请填 0；否则会把总资产起点重复增加。
-        </div>}
       </div>
       <button className="primary" onClick={add} disabled={!name.trim() || create.isPending}>
         添加

@@ -92,6 +92,7 @@ export function useCreateCard() {
       type?: CardType;
       initialBalance?: string;
       isDefault?: boolean;
+      isFundCash?: boolean;
     }) => cardsService.create(body),
     onSuccess: inv,
   });
@@ -107,6 +108,7 @@ export function useUpdateCard() {
       name?: string;
       type?: CardType;
       initialBalance?: string;
+      isFundCash?: boolean;
     }) => cardsService.update(id, body),
     onSuccess: inv,
   });
@@ -473,7 +475,13 @@ export function useIncomeCompare(prefix: string) {
 export function useReconciliation(refMonth: string) {
   return useQuery({
     queryKey: ['reconciliation', refMonth],
-    queryFn: () => reconciliationService.report(refMonth),
+    queryFn: () => reconciliationService.compute(refMonth),
+  });
+}
+export function useReconciliationBreakdown(refMonth: string) {
+  return useQuery({
+    queryKey: ['reconciliation', 'breakdown', refMonth],
+    queryFn: () => reconciliationService.breakdown(refMonth),
   });
 }
 

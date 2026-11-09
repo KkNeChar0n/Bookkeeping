@@ -6,6 +6,10 @@ import { cardsService } from './cards.service';
 import { initialBalanceLogService } from './initialBalanceLog.service';
 import { incomeCompareService } from './incomeCompare.service';
 import { fundSavingsService } from './fundSavings.service';
+import { budgetPlanService } from './budgetPlan.service';
+import { savingsActualService } from './savingsActual.service';
+import { savingsEntryService } from './savingsEntry.service';
+import { consumptionBudgetService } from './consumptionBudget.service';
 
 test('updating an initial balance atomically keeps an audit record', async () => {
   await db.open();
@@ -250,6 +254,71 @@ test('card creation rejects retired fund cards', async () => {
     cardsService.create({ name: '旧基金', type: 'FUND', initialBalance: '100' }),
     /只能创建储蓄卡/,
   );
+  db.close();
+  await db.delete();
+});
+
+test('fund cash cards keep real balances but reject every budget funding write', async () => {
+  await db.open();
+  const card = await cardsService.create({
+    name: '基金资金卡',
+    initialBalance: '999',
+    isFundCash: true,
+  });
+  assert.equal(card.isFundCash, true);
+  assert.equal(card.initialBalance, '0.00');
+
+  await savingsActualService.setAmount({ cardId: card.id, month: '2026-11', amount: '50' });
+  assert.equal((await savingsActualService.balanceAsOf(card.id, '2026-11'))?.amount, 5_000);
+  assert.equal(await budgetPlanService.expectedBalance(card.id, '2026-11'), 0);
+  assert.equal(await budgetPlanService.totalIncomeUpTo(card.id, '2026-11'), 0);
+  await assert.rejects(
+    budgetPlanService.addDetail({
+      cardId: card.id, month: '2026-11', label: '收入', kind: 'IN', amount: '1',
+    }),
+    /不参与预算/,
+  );
+  await assert.rejects(
+    savingsEntryService.add({ cardId: card.id, month: '2026-11', kind: 'INCOME', amount: '1' }),
+    /只记录真实余额/,
+  );
+  await assert.rejects(
+    consumptionBudgetService.setBudget({ savingsCardId: card.id, month: '2026-11', amount: '1' }),
+    /不参与消费预算/,
+  );
+
+  db.close();
+  await db.delete();
+});
+
+test('an empty zero-opening card can be marked without losing actuals, while budget data blocks marking', async () => {
+  await db.open();
+  await db.cards.bulkAdd([
+    {
+      id: 'empty-card', name: '已建资金卡', type: 'SAVINGS', initialBalance: 0,
+      isDefault: 0, sortOrder: 1, createdAt: 1,
+    },
+    {
+      id: 'used-card', name: '已用预算卡', type: 'SAVINGS', initialBalance: 0,
+      isDefault: 0, sortOrder: 2, createdAt: 2,
+    },
+  ]);
+  await savingsActualService.setAmount({ cardId: 'empty-card', month: '2026-11', amount: '26.10' });
+  await db.budgetDetails.add({
+    id: 'used-budget', cardId: 'used-card', month: '2026-11', label: '收入', kind: 'IN',
+    amount: 100, createdAt: 1,
+  });
+
+  const marked = await cardsService.update('empty-card', { isFundCash: true });
+  assert.equal(marked.isFundCash, true);
+  assert.equal((await savingsActualService.balanceAsOf('empty-card', '2026-11'))?.amount, 2_610);
+  await assert.rejects(cardsService.update('empty-card', { initialBalance: '1' }), /期初固定为0/);
+  await assert.rejects(cardsService.update('used-card', { isFundCash: true }), /只能将零期初/);
+
+  const unmarked = await cardsService.update('empty-card', { isFundCash: false });
+  assert.equal(unmarked.isFundCash, false);
+  assert.equal((await savingsActualService.balanceAsOf('empty-card', '2026-11'))?.amount, 2_610);
+
   db.close();
   await db.delete();
 });

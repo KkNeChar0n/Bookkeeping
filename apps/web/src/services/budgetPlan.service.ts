@@ -38,17 +38,25 @@ function toDetail(d: BudgetDetailRow): BudgetDetailDTO {
 
 async function initialOf(cardId: string): Promise<Cents> {
   const c = await db.cards.get(cardId);
-  return c ? c.initialBalance : 0;
+  return c && c.type === 'SAVINGS' && c.isFundCash !== 1 ? c.initialBalance : 0;
+}
+
+async function assertBudgetCard(cardId: string): Promise<void> {
+  const card = await db.cards.get(cardId);
+  if (!card || card.type !== 'SAVINGS') throw new Error('储蓄卡不存在');
+  if (card.isFundCash === 1) throw new Error('基金资金卡不参与预算');
 }
 
 export const budgetPlanService = {
   /** 某储蓄卡按月的预算细节 + 滚动预期余额；extraMonths 用于展示尚无细节的空月份 */
   async months(cardId: string, extraMonths: string[] = []): Promise<BudgetMonthDTO[]> {
-    const [rows, initial, start] = await Promise.all([
+    const [allRows, initial, start, card] = await Promise.all([
       db.budgetDetails.where('cardId').equals(cardId).toArray(),
       initialOf(cardId),
       getBookkeepingStart(),
+      db.cards.get(cardId),
     ]);
+    const rows = card?.isFundCash === 1 ? [] : allRows;
     const startMonth = start?.startDate.slice(0, 7);
     const byMonth = new Map<string, BudgetDetailRow[]>();
     for (const r of rows) {
@@ -86,6 +94,7 @@ export const budgetPlanService = {
     amount: string;
   }): Promise<void> {
     await assertActiveMonth(input.month);
+    await assertBudgetCard(input.cardId);
     const amt = toCents(input.amount);
     if (amt <= 0) throw new Error('金额必须为正');
     const defLabel =
@@ -119,6 +128,7 @@ export const budgetPlanService = {
     await assertActiveMonth(input.month);
     if (!input.peerCardId) throw new Error('请选择对手储蓄卡');
     if (input.peerCardId === input.cardId) throw new Error('对手卡不能是自己');
+    await Promise.all([assertBudgetCard(input.cardId), assertBudgetCard(input.peerCardId)]);
     const amt = toCents(input.amount);
     if (amt <= 0) throw new Error('金额必须为正');
     const ts = nowTs();
@@ -149,6 +159,8 @@ export const budgetPlanService = {
 
   /** 某储蓄卡某月的预期收入（只算 IN，不含调入） */
   async expectedIncome(cardId: string, month: string): Promise<Cents> {
+    const card = await db.cards.get(cardId);
+    if (card?.isFundCash === 1) return 0;
     const start = await getBookkeepingStart();
     if (start && month < start.startDate.slice(0, 7)) return 0;
     const rows = await db.budgetDetails.where('[cardId+month]').equals([cardId, month]).toArray();
@@ -157,10 +169,12 @@ export const budgetPlanService = {
 
   /** 某储蓄卡「截至某月」的累计预期收入（只算 IN） */
   async totalIncomeUpTo(cardId: string, month: string): Promise<Cents> {
-    const [rows, start] = await Promise.all([
+    const [rows, start, card] = await Promise.all([
       db.budgetDetails.where('cardId').equals(cardId).toArray(),
       getBookkeepingStart(),
+      db.cards.get(cardId),
     ]);
+    if (card?.isFundCash === 1) return 0;
     const startMonth = start?.startDate.slice(0, 7);
     return rows
       .filter((r) => r.kind === 'IN' && r.month <= month && (!startMonth || r.month >= startMonth))
@@ -212,11 +226,13 @@ export const budgetPlanService = {
    * 期初 + Σ(收入 + 调入 − 调出 − 支出)。支出会扣减（参与储蓄-预算）。
    */
   async expectedBalance(cardId: string, month: string): Promise<Cents> {
-    const [rows, initial, start] = await Promise.all([
+    const [rows, initial, start, card] = await Promise.all([
       db.budgetDetails.where('cardId').equals(cardId).toArray(),
       initialOf(cardId),
       getBookkeepingStart(),
+      db.cards.get(cardId),
     ]);
+    if (card?.isFundCash === 1) return 0;
     const startMonth = start?.startDate.slice(0, 7);
     if (startMonth && month < startMonth) return 0;
     let bal = initial;

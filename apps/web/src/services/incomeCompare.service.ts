@@ -13,13 +13,17 @@ export interface IncomeCompare {
 export const incomeCompareService = {
   /** 按周期(prefix: 'YYYY-MM' 或 'YYYY')比较收入 */
   async compute(prefix: string): Promise<IncomeCompare> {
-    const [budgetDetails, start] = await Promise.all([
+    const [budgetDetails, start, cards] = await Promise.all([
       db.budgetDetails.toArray(),
       getBookkeepingStart(),
+      db.cards.toArray(),
     ]);
+    const allowed = new Set(
+      cards.filter((card) => card.type === 'SAVINGS' && card.isFundCash !== 1).map((card) => card.id),
+    );
     const startMonth = start?.startDate.slice(0, 7);
     const expected = budgetDetails
-      .filter((d) => d.kind === 'IN' && d.month.startsWith(prefix) && (!startMonth || d.month >= startMonth))
+      .filter((d) => allowed.has(d.cardId) && d.kind === 'IN' && d.month.startsWith(prefix) && (!startMonth || d.month >= startMonth))
       .reduce((s, d) => s + d.amount, 0);
     const actual = await savingsEntryService.actualIncome(prefix);
     return {

@@ -36,7 +36,9 @@ export function BudgetCardPage() {
   const view = useBudgetCurrentMonth(id, month);
   const v = view.data;
 
-  const savings = (cards.data ?? []).filter((c) => c.type === 'SAVINGS' && c.id !== id);
+  const savings = (cards.data ?? []).filter(
+    (c) => c.type === 'SAVINGS' && !c.isFundCash && c.id !== id,
+  );
   const [showTransfer, setShowTransfer] = useState(false);
   const [peer, setPeer] = useState('');
   const [tAmt, setTAmt] = useState('');
@@ -45,6 +47,17 @@ export function BudgetCardPage() {
   const { drag, instant, handlers, onClickCapture } = useCardSlide((dir) =>
     setMonth((m) => addMonths(m, dir)),
   );
+
+  if (card?.isFundCash) {
+    return (
+      <div className="detail-page">
+        <button className="ghost" onClick={() => navigate('/budget')}>
+          ‹ 预算
+        </button>
+        <div className="card muted mt">基金资金卡只在储蓄中记录真实余额，不参与预算。</div>
+      </div>
+    );
+  }
 
   const editInitial = () => {
     const val = window.prompt('期初金额（预期余额的起点）', card?.initialBalance ?? '0');

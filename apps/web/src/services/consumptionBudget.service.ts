@@ -19,22 +19,26 @@ function prevMonth(month: string): string {
 }
 
 async function monthlyTotals(upTo: string) {
-  const [budgets, excessRows, transactions, start] = await Promise.all([
+  const [budgets, excessRows, transactions, start, cards] = await Promise.all([
     db.consumptionBudgets.toArray(),
     db.savingsEntries.where('kind').equals('EXCESS').toArray(),
     db.transactions.where('cardId').equals(VIRTUAL_CONSUMPTION_CARD_ID).toArray(),
     getBookkeepingStart(),
+    db.cards.toArray(),
   ]);
+  const allowed = new Set(
+    cards.filter((card) => card.type === 'SAVINGS' && card.isFundCash !== 1).map((card) => card.id),
+  );
   const startMonth = hasConsumptionHistory(start) ? undefined : start?.startDate.slice(0, 7);
   const budgetByMonth = new Map<string, Cents>();
   for (const row of budgets) {
-    if (row.month <= upTo && (!startMonth || row.month >= startMonth)) {
+    if (allowed.has(row.savingsCardId) && row.month <= upTo && (!startMonth || row.month >= startMonth)) {
       budgetByMonth.set(row.month, (budgetByMonth.get(row.month) ?? 0) + row.amount);
     }
   }
   const excessByMonth = new Map<string, Cents>();
   for (const row of excessRows) {
-    if (row.month <= upTo && (!startMonth || row.month >= startMonth)) {
+    if (allowed.has(row.cardId) && row.month <= upTo && (!startMonth || row.month >= startMonth)) {
       excessByMonth.set(row.month, (excessByMonth.get(row.month) ?? 0) + row.amount);
     }
   }
@@ -102,7 +106,8 @@ export interface ConsumptionFundingView {
 export const consumptionBudgetService = {
   /** A savings card's exact-month contribution; missing values stay empty in the editor. */
   async contribution(savingsCardId: string, month: string): Promise<string> {
-    const start = await getBookkeepingStart();
+    const [start, card] = await Promise.all([getBookkeepingStart(), db.cards.get(savingsCardId)]);
+    if (card?.isFundCash === 1) return '';
     if (start && !hasConsumptionHistory(start) && month < start.startDate.slice(0, 7)) return '';
     const row = await db.consumptionBudgets
       .where('[savingsCardId+month]')
@@ -115,6 +120,9 @@ export const consumptionBudgetService = {
   async setBudget(input: { savingsCardId: string; month: string; amount: string }): Promise<void> {
     await assertConsumptionMonth(input.month);
     const amount = toCents(input.amount || '0');
+    const card = await db.cards.get(input.savingsCardId);
+    if (!card || card.type !== 'SAVINGS') throw new Error('储蓄卡不存在');
+    if (card.isFundCash === 1 && amount > 0) throw new Error('基金资金卡不参与消费预算');
     const existing = await db.consumptionBudgets
       .where('[savingsCardId+month]')
       .equals([input.savingsCardId, input.month])
@@ -139,18 +147,26 @@ export const consumptionBudgetService = {
 
   /** Global monthly quota = sum of every savings card's contribution for this exact month. */
   async quotaFor(month: string): Promise<Cents> {
-    const start = await getBookkeepingStart();
+    const [start, cards] = await Promise.all([getBookkeepingStart(), db.cards.toArray()]);
     if (start && !hasConsumptionHistory(start) && month < start.startDate.slice(0, 7)) return 0;
+    const allowed = new Set(
+      cards.filter((card) => card.type === 'SAVINGS' && card.isFundCash !== 1).map((card) => card.id),
+    );
     const rows = await db.consumptionBudgets.where('month').equals(month).toArray();
-    return rows.reduce((sum, row) => sum + row.amount, 0);
+    return rows.filter((row) => allowed.has(row.savingsCardId)).reduce((sum, row) => sum + row.amount, 0);
   },
 
   /** Global monthly excess recharge, without card weighting or cross-month fallback. */
   async excessFor(month: string): Promise<Cents> {
-    const start = await getBookkeepingStart();
+    const [start, cards] = await Promise.all([getBookkeepingStart(), db.cards.toArray()]);
     if (start && !hasConsumptionHistory(start) && month < start.startDate.slice(0, 7)) return 0;
+    const allowed = new Set(
+      cards.filter((card) => card.type === 'SAVINGS' && card.isFundCash !== 1).map((card) => card.id),
+    );
     const rows = await db.savingsEntries.where('kind').equals('EXCESS').toArray();
-    return rows.filter((row) => row.month === month).reduce((sum, row) => sum + row.amount, 0);
+    return rows
+      .filter((row) => allowed.has(row.cardId) && row.month === month)
+      .reduce((sum, row) => sum + row.amount, 0);
   },
 
   /** Saved funding and the single globally allocated carry pool for a month. */
@@ -162,7 +178,7 @@ export const consumptionBudgetService = {
       getBookkeepingStart(),
     ]);
     const savings = cards
-      .filter((card) => card.type === 'SAVINGS')
+      .filter((card) => card.type === 'SAVINGS' && card.isFundCash !== 1)
       .sort((a, b) => a.sortOrder - b.sortOrder || a.createdAt - b.createdAt);
     const activeBudgets = start && !hasConsumptionHistory(start) && month < start.startDate.slice(0, 7) ? [] : budgets;
     const bySavings = new Map(activeBudgets.map((row) => [row.savingsCardId, row.amount]));

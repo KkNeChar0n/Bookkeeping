@@ -51,7 +51,7 @@ function SavingsRow({ card, open, onToggle }: { card: Card; open: boolean; onTog
       <div className="stack-head" onClick={onToggle}>
         <div className="stack-name">
           <span>{card.name}</span>
-          <span className="type-tag">储蓄卡</span>
+          <span className="type-tag">{card.isFundCash ? '基金资金卡' : '储蓄卡'}</span>
         </div>
         <div className="stack-nums">
           <span>{current !== undefined ? fmtMoney(current) : '未填'}</span>

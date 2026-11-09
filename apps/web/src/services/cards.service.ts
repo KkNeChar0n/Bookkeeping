@@ -11,6 +11,7 @@ function toDTO(c: CardRow): Card {
     initialBalance: fromCents(c.initialBalance),
     isDefault: c.isDefault === 1,
     sortOrder: c.sortOrder,
+    isFundCash: c.isFundCash === 1,
   };
 }
 
@@ -29,14 +30,15 @@ export const cardsService = {
     type?: CardType;
     initialBalance?: string;
     isDefault?: boolean;
+    isFundCash?: boolean;
   }): Promise<Card> {
     const name = input.name.trim();
     if (!name) throw new Error('卡片名称不能为空');
     const rows = await db.cards.toArray();
     const sortOrder = rows.reduce((m, r) => Math.max(m, r.sortOrder), -1) + 1;
-    const initial = toCents(input.initialBalance ?? '0');
     const type = input.type ?? 'SAVINGS';
     if (type !== 'SAVINGS') throw new Error('只能创建储蓄卡');
+    const initial = input.isFundCash ? 0 : toCents(input.initialBalance ?? '0');
     const row: CardRow = {
       id: newId(),
       name,
@@ -45,6 +47,7 @@ export const cardsService = {
       isDefault: input.isDefault ? 1 : 0,
       sortOrder,
       createdAt: nowTs(),
+      ...(input.isFundCash ? { isFundCash: 1 as const } : {}),
     };
     await db.transaction('rw', db.cards, async () => {
       if (input.isDefault) {
@@ -57,7 +60,12 @@ export const cardsService = {
 
   async update(
     id: string,
-    input: { name?: string; type?: CardType; initialBalance?: string },
+    input: {
+      name?: string;
+      type?: CardType;
+      initialBalance?: string;
+      isFundCash?: boolean;
+    },
   ): Promise<Card> {
     const existing = await db.cards.get(id);
     if (!existing) throw new Error('卡片不存在');
@@ -72,8 +80,38 @@ export const cardsService = {
       if (input.type !== 'SAVINGS') throw new Error('只能管理储蓄卡');
       patch.type = input.type;
     }
-    const nextInitial =
-      input.initialBalance === undefined ? undefined : toCents(input.initialBalance);
+    if (input.isFundCash === true && existing.isFundCash !== 1) {
+      const [budgetDetails, budgetLines, savingsEntries, consumptionBudgets] = await Promise.all([
+        db.budgetDetails.toArray(),
+        db.budgetLines.where('cardId').equals(id).count(),
+        db.savingsEntries.where('cardId').equals(id).count(),
+        db.consumptionBudgets.where('savingsCardId').equals(id).count(),
+      ]);
+      const participatesInBudget = budgetDetails.some(
+        (row) => row.cardId === id || row.peerCardId === id,
+      );
+      if (
+        existing.initialBalance !== 0 ||
+        participatesInBudget ||
+        budgetLines > 0 ||
+        savingsEntries > 0 ||
+        consumptionBudgets > 0
+      ) {
+        throw new Error('只能将零期初且没有预算、收入或消费资金记录的卡设为基金资金卡');
+      }
+      patch.isFundCash = 1;
+      patch.initialBalance = 0;
+    } else if (input.isFundCash === false && existing.isFundCash === 1) {
+      patch.isFundCash = undefined;
+    }
+    const nextInitial = input.isFundCash === true
+      ? 0
+      : input.initialBalance === undefined
+        ? undefined
+        : toCents(input.initialBalance);
+    if (existing.isFundCash === 1 && input.isFundCash !== false && nextInitial !== undefined && nextInitial !== 0) {
+      throw new Error('基金资金卡的预算期初固定为0');
+    }
     if (nextInitial !== undefined) patch.initialBalance = nextInitial;
     await db.transaction('rw', [db.cards, db.initialBalanceLogs], async () => {
       const current = await db.cards.get(id);

@@ -7,6 +7,7 @@ import { cardsService } from './cards.service';
 import { fundSavingsService } from './fundSavings.service';
 import { reconciliationService } from './reconciliation.service';
 import { savingsActualService } from './savingsActual.service';
+import { VIRTUAL_CONSUMPTION_CARD_ID } from '../domain/consumption';
 
 const cardId = 'reconciliation-report-source';
 
@@ -148,6 +149,83 @@ test('a December report remains a December versus November change, not a full ye
   assert.equal(report.interestChange.amount, '1.23');
 });
 
+test('difference breakdown lists continuous monthly increments whose totals match the cumulative groups', async () => {
+  await db.bookkeepingStart.put({
+    id: 'active',
+    startDate: '2026-09-01',
+    createdAt: 1,
+    manualOpening: true,
+    consumptionHistory: true,
+    openingSavings: [],
+  });
+  await setBalance('2026-09');
+  await setBalance('2026-10', '976.15');
+  await db.budgetDetails.bulkAdd([
+    {
+      id: 'income-sep', cardId, month: '2026-09', label: '收入', kind: 'IN',
+      amount: 100, createdAt: 1,
+    },
+    {
+      id: 'income-oct', cardId, month: '2026-10', label: '收入', kind: 'IN',
+      amount: 200, createdAt: 2,
+    },
+  ]);
+  await db.savingsEntries.bulkAdd([
+    {
+      id: 'actual-income-sep', cardId, month: '2026-09', kind: 'INCOME',
+      amount: 150, createdAt: 1,
+    },
+    {
+      id: 'actual-income-oct', cardId, month: '2026-10', kind: 'INCOME',
+      amount: 100, createdAt: 2,
+    },
+  ]);
+  await db.consumptionBudgets.bulkAdd([
+    {
+      id: 'quota-sep', savingsCardId: cardId, month: '2026-09',
+      amount: 100, updatedAt: 1,
+    },
+    {
+      id: 'quota-oct', savingsCardId: cardId, month: '2026-10',
+      amount: 200, updatedAt: 2,
+    },
+  ]);
+  await db.transactions.bulkAdd([
+    {
+      id: 'spent-sep', cardId: VIRTUAL_CONSUMPTION_CARD_ID, date: '2026-09-10',
+      type: 'OUT', amount: -200, category: null, note: null, peerCardId: null,
+      transferGroupId: null, createdAt: 1,
+    },
+    {
+      id: 'spent-oct', cardId: VIRTUAL_CONSUMPTION_CARD_ID, date: '2026-10-10',
+      type: 'OUT', amount: -400, category: null, note: null, peerCardId: null,
+      transferGroupId: null, createdAt: 2,
+    },
+  ]);
+
+  const breakdown = await reconciliationService.breakdown('2026-10');
+  assert.deepEqual(breakdown, {
+    refMonth: '2026-10',
+    months: [
+      { month: '2026-09', overspend: '1.00', incomeDiff: '0.50', assetChange: '-1026.58' },
+      { month: '2026-10', overspend: '2.00', incomeDiff: '-1.00', assetChange: '0.23' },
+    ],
+  });
+  const cumulative = await reconciliationService.compute('2026-10');
+  assert.equal(
+    breakdown.months.reduce((sum, row) => sum + Number(row.overspend), 0).toFixed(2),
+    cumulative.overspend,
+  );
+  assert.equal(
+    breakdown.months.reduce((sum, row) => sum + Number(row.incomeDiff), 0).toFixed(2),
+    cumulative.incomeDiff,
+  );
+  assert.equal(
+    breakdown.months.reduce((sum, row) => sum + Number(row.assetChange), 0).toFixed(2),
+    cumulative.interest,
+  );
+});
+
 test('carried savings balances produce a saved-data comparison with explicit sources', async () => {
   await setBalance('2026-09');
 
@@ -234,6 +312,7 @@ test('report queries do not create, delete, or alter any ledger data', async () 
   await reconciliationService.report('2026-10');
   await reconciliationService.report('2026-09');
   await reconciliationService.report('2026-11');
+  await reconciliationService.breakdown('2026-11');
 
   assert.deepEqual(await snapshot(), before);
 });

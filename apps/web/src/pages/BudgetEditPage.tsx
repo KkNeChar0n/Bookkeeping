@@ -47,6 +47,17 @@ export function BudgetEditPage() {
   const gestureRef = useRef(false);
   const submittingRef = useRef(false);
 
+  if (card?.isFundCash) {
+    return (
+      <div>
+        <button className="ghost" onClick={() => navigate('/budget')}>
+          ‹ 预算
+        </button>
+        <div className="card muted mt">基金资金卡不参与预算收支。</div>
+      </div>
+    );
+  }
+
   const reset = () => {
     setMode('idle');
     setAmount('');

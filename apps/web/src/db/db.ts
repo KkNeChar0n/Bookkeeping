@@ -16,6 +16,8 @@ export interface CardRow {
   isDefault: number; // 0/1（Dexie 索引友好）
   sortOrder: number;
   createdAt: number;
+  /** 基金待投资现金专用卡：只记真实余额，不参与预算。 */
+  isFundCash?: 1;
   // 仅供 v21 以前的基金卡迁移读取。
   fundPrincipal?: number;
   fundValue?: number;

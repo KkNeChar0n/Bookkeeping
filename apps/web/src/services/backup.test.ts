@@ -119,6 +119,48 @@ test('legacy backup becomes one virtual account and avoids v8 quota double count
   assert.deepEqual(again.consumptionBudgets, result.consumptionBudgets);
 });
 
+test('backup preserves valid fund cash markers, maps the legacy flag and drops conflicting markers', () => {
+  const result = normalizeBackupData({
+    app: 'bookkeeping',
+    version: 15,
+    exportedAt: '2026-11-09T00:00:00.000Z',
+    cards: [
+      {
+        id: 'current-fund-cash', name: '当前基金资金卡', type: 'SAVINGS',
+        initialBalance: 0, isDefault: 0, sortOrder: 1, createdAt: 1, isFundCash: 1,
+      },
+      {
+        id: 'legacy-fund-cash', name: '旧基金资金卡', type: 'SAVINGS',
+        initialBalance: 0, isDefault: 0, sortOrder: 2, createdAt: 2,
+        savingsPurpose: 'FUND_POOL',
+      },
+      {
+        id: 'conflicting-card', name: '已记收入', type: 'SAVINGS',
+        initialBalance: 0, isDefault: 0, sortOrder: 3, createdAt: 3, isFundCash: 1,
+      },
+      {
+        id: 'nonzero-card', name: '非零期初', type: 'SAVINGS',
+        initialBalance: 100, isDefault: 0, sortOrder: 4, createdAt: 4, isFundCash: 1,
+      },
+    ],
+    budgetSnapshots: [],
+    budgetLines: [],
+    transactions: [],
+    savingsEntries: [
+      {
+        id: 'income', cardId: 'conflicting-card', month: '2026-11', kind: 'INCOME',
+        amount: 100, createdAt: 1,
+      },
+    ],
+  });
+
+  const cards = new Map(result.cards.map((card) => [card.id, card]));
+  assert.equal(cards.get('current-fund-cash')?.isFundCash, 1);
+  assert.equal(cards.get('legacy-fund-cash')?.isFundCash, 1);
+  assert.equal(cards.get('conflicting-card')?.isFundCash, undefined);
+  assert.equal(cards.get('nonzero-card')?.isFundCash, undefined);
+});
+
 test('v8 backup drops transfer and principal details while preserving aggregate market value', () => {
   const result = normalizeBackupData({
     app: 'bookkeeping',
